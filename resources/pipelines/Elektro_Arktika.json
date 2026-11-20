@@ -229,7 +229,8 @@
         "name": "ELEKTRO-L GGAK",
         "live": [
             1,
-            2
+            2,
+            3
         ],
         "frequencies": [
             [
@@ -244,8 +245,11 @@
                 "module": "pm_demod",
                 "parameters": {
                     "symbolrate": 5e3,
-                    "pll_bw": 0.02,
-                    "rrc_alpha": 0.5
+                    "pll_bw": 0.01,
+                    "pll_acquire_frequency": true,
+                    "rrc_alpha": 0.5,
+                    "clock_gain_mu": 0.05,
+                    "clock_gain_omega": 0.000625
                 }
             },
             "cadu": {
@@ -257,6 +261,10 @@
                     "nrzm": false,
                     "rs_i": 0
                 }
+            },
+            "ggak": {
+                "module": "elektro_arktika_ggak_instruments",
+                "parameters": {}
             }
         }
     },

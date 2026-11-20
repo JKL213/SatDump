@@ -1,6 +1,7 @@
 #include "handlers/processing/processing.h"
 #include "init.h"
 #include "recorder.h"
+#include "pipeline_tuning.h"
 
 #include "logger.h"
 #include "main_ui.h"
@@ -25,6 +26,7 @@ namespace satdump
         out["waterfall_rate"] = waterfall_rate;
         out["waterfall_palette"] = waterfall_palettes[selected_waterfall_palette].name;
         out["baseband_type"] = (std::string)baseband_format;
+        out["dc_blocking"] = dc_blocking;
         if (fft_plot && waterfall_plot && fft)
         {
             out["fft_min"] = fft_plot->scale_min;
@@ -40,6 +42,7 @@ namespace satdump
 
     void RecorderApplication::deserialize_config(nlohmann::json in)
     {
+        dc_blocking = in.value("dc_blocking", false);
         show_waterfall = in["show_waterfall"].get<bool>();
         waterfall_ratio = in["waterfall_ratio"].get<float>();
         panel_ratio = in["panel_ratio"].get<float>();
@@ -91,6 +94,8 @@ namespace satdump
             current_samplerate = source_ptr->get_samplerate();
             if (current_samplerate == 0)
                 throw satdump_exception("Samplerate not set!");
+            if (get_samplerate() == 0)
+                throw satdump_exception("Decimation is too high for this samplerate!");
 
             source_ptr->start();
 
@@ -105,7 +110,15 @@ namespace satdump
             waterfall_plot->set_rate(fft_rate, waterfall_rate);
             fft_plot->bandwidth = get_samplerate();
 
-            splitter->input_stream = current_decimation > 1 ? decim_ptr->output_stream : source_ptr->output_stream;
+            auto input = current_decimation > 1 ? decim_ptr->output_stream : source_ptr->output_stream;
+            if (dc_blocking)
+            {
+                // Keep the DC estimator's time constant independent of decimation.
+                dc_blocker = std::make_shared<dsp::CorrectIQBlock<complex_t>>(input, std::min(1.0f, 50.0f / get_samplerate()));
+                dc_blocker->start();
+                input = dc_blocker->output_stream;
+            }
+            splitter->input_stream = input;
             splitter->start();
             is_started = true;
         }
@@ -122,6 +135,11 @@ namespace satdump
             return;
 
         splitter->stop_tmp();
+        if (dc_blocker)
+        {
+            dc_blocker->stop();
+            dc_blocker.reset();
+        }
         if (current_decimation > 1)
             decim_ptr->stop();
         source_ptr->stop();
@@ -195,6 +213,11 @@ namespace satdump
                 live_pipeline->start(splitter->get_output("live"), ui_thread_pool);
                 splitter->set_enabled("live", true);
 
+                {
+                    std::lock_guard<std::mutex> lock(vfos_mtx);
+                    processing_vfo = {pipeline_selector.selected_pipeline.name, recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, pipeline_params)};
+                }
+
                 is_processing = true;
             }
             catch (std::runtime_error &e)
@@ -214,6 +237,10 @@ namespace satdump
         if (is_processing)
         {
             is_stopping_processing = true;
+            {
+                std::lock_guard<std::mutex> lock(vfos_mtx);
+                processing_vfo = {};
+            }
             logger->trace("Stop pipeline...");
             splitter->set_enabled("live", false);
             live_pipeline->stop();

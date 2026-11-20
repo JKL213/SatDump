@@ -6,6 +6,7 @@
 #include "core/exception.h"
 #include "imgui/imgui.h"
 #include "logger.h"
+#include <algorithm>
 
 // Return filesize
 uint64_t getFilesize(std::string filepath);
@@ -336,7 +337,7 @@ namespace satdump
 
                     if (d_constellation == dsp::BPSK)
                     {
-                        for (int i = 0; i < 2048; i++)
+                        for (int i = 0; i < std::min(d_buffer_size, 2048); i++)
                         {
                             draw_list->AddCircleFilled(ImVec2(ImGui::GetCursorScreenPos().x + (int)(100 * ui_scale + (((int8_t *)soft_buffer)[i] / 127.0) * 130 * ui_scale) % int(200 * ui_scale),
                                                               ImGui::GetCursorScreenPos().y + (int)(100 * ui_scale + rng.gasdev() * 14 * ui_scale) % int(200 * ui_scale)),
@@ -345,7 +346,7 @@ namespace satdump
                     }
                     else
                     {
-                        for (int i = 0; i < 2048; i++)
+                        for (int i = 0; i < std::min(d_buffer_size / 2, 2048); i++)
                         {
                             draw_list->AddCircleFilled(
                                 ImVec2(ImGui::GetCursorScreenPos().x + (int)(100 * ui_scale + (((int8_t *)soft_buffer)[i * 2 + 0] / 127.0) * 100 * ui_scale) % int(200 * ui_scale),

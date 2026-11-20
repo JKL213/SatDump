@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/audio/audio_sink.h"
 #include "common/dsp/path/splitter.h"
 #include "pipeline/modules/demod/module_demod_base.h"
 #include "stx_demod_hier.h"
@@ -22,6 +23,12 @@ namespace orbcomm
         std::mutex stx_link_lst_mtx;
         std::map<double, STXLink> stx_link_lst;
 
+        bool play_audio;
+        bool enable_audio = false;
+        double audio_freq = 0;
+        std::shared_ptr<audio::AudioSink> audio_sink;
+        int16_t *audio_buffer = nullptr;
+
         void add_stx_link(double frequency)
         {
             stx_link_lst_mtx.lock();
@@ -36,7 +43,15 @@ namespace orbcomm
                 splitter->add_vfo(id, d_samplerate, offset);
                 STXLink link;
                 link.id = id;
-                link.demod = std::make_shared<STXDemod>(splitter->get_vfo_output(id), frm_callback, d_samplerate, true);
+                link.demod = std::make_shared<STXDemod>(splitter->get_vfo_output(id), frm_callback, d_samplerate, true,
+                                                        [this, frequency](float *buf, int n)
+                                                        {
+                                                            if (!(enable_audio && play_audio && audio_freq == frequency))
+                                                                return;
+                                                            for (int i = 0; i < n; i++)
+                                                                audio_buffer[i] = std::max(-1.0f, std::min(1.0f, buf[i])) * 32767;
+                                                            audio_sink->push_samples(audio_buffer, n);
+                                                        });
                 link.last_ping = time(0);
                 link.demod->start();
                 logger->info("Started!");

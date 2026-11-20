@@ -4,7 +4,8 @@
 
 namespace orbcomm
 {
-    STXDemod::STXDemod(std::shared_ptr<dsp::stream<complex_t>> input, std::function<void(uint8_t *, int)> callback, double samplerate, bool resamp)
+    STXDemod::STXDemod(std::shared_ptr<dsp::stream<complex_t>> input, std::function<void(uint8_t *, int)> callback, double samplerate, bool resamp,
+                       std::function<void(float *, int)> audio_callback)
         : HierBlock(input)
     {
         const double symrate = 4800;
@@ -22,8 +23,11 @@ namespace orbcomm
         // DC Blocking
         iqc = std::make_shared<dsp::CorrectIQBlock<float>>(qua->output_stream);
 
+        // Audio tap
+        tap = std::make_shared<dsp::TapBlock<float>>(iqc->output_stream, audio_callback);
+
         // Filter
-        rrc = std::make_shared<dsp::FIRBlock<float>>(iqc->output_stream, dsp::firdes::root_raised_cosine(1.0, target_samp, symrate, 0.4, 31));
+        rrc = std::make_shared<dsp::FIRBlock<float>>(tap->output_stream, dsp::firdes::root_raised_cosine(1.0, target_samp, symrate, 0.4, 31));
 
         // Recovery
         float d_clock_gain_omega = 0.25 * 0.175 * 0.175;
@@ -44,6 +48,7 @@ namespace orbcomm
         agc->start();
         qua->start();
         iqc->start();
+        tap->start();
         rrc->start();
         rec->start();
         def->start();
@@ -56,6 +61,7 @@ namespace orbcomm
         agc->stop();
         qua->stop();
         iqc->stop();
+        tap->stop();
         rrc->stop();
         rec->stop();
         def->stop();

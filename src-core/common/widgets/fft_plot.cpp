@@ -84,15 +84,23 @@ namespace satdump
                 for (auto vfo : vfo_freqs)
                 {
                     double vfreq = vfo.second - frequency;
+                    if (std::abs(vfreq) > bandwidth / 2)
+                        continue;
                     float y_level = inner_bb.Max.y - 8 * ui_scale;
                     float x_line = inner_bb.Min.x + (((bandwidth / 2) + vfreq) / bandwidth) * res_w;
 
+                    window->DrawList->AddLine({x_line, inner_bb.Min.y}, {x_line, y_level - 20 * ui_scale}, col_base_vfo, 1);
                     window->DrawList->AddLine({x_line, y_level}, {x_line, y_level - 10 * ui_scale}, col_base_vfo, 3);
                     window->DrawList->AddLine({x_line, y_level - 10 * ui_scale}, {x_line - 5 * ui_scale, y_level - 20 * ui_scale}, col_base_vfo, 3);
                     window->DrawList->AddLine({x_line, y_level - 10 * ui_scale}, {x_line + 5 * ui_scale, y_level - 20 * ui_scale}, col_base_vfo, 3);
 
                     if (sqrtf(powf(ImGui::GetMousePos().x - x_line, 2) + powf(ImGui::GetMousePos().y - y_level, 2)) < 40 * ui_scale)
-                        window->DrawList->AddText({x_line - ImGui::CalcTextSize(vfo.first.c_str()).x / 2, y_level - 45 * ui_scale}, col_base_vfo, vfo.first.c_str());
+                    {
+                        std::string label = vfo.first + "\n" + format_notated(vfo.second, "Hz");
+                        float x_label = std::max(inner_bb.Min.x, std::min(x_line - ImGui::CalcTextSize(label.c_str()).x / 2,
+                                                                        inner_bb.Max.x - ImGui::CalcTextSize(label.c_str()).x));
+                        window->DrawList->AddText({x_label, y_level - 60 * ui_scale}, col_base_vfo, label.c_str());
+                    }
                 }
             }
 
@@ -197,6 +205,8 @@ namespace satdump
                 for (auto vfo : vfo_freqs)
                 {
                     double vfreq = vfo.second - frequency;
+                    if (std::abs(vfreq) > bandwidth / 2)
+                        continue;
                     float y_level = size_y - 8 * ui_scale;
                     float x_line = 0 + (((bandwidth / 2) + vfreq) / bandwidth) * res_w;
 

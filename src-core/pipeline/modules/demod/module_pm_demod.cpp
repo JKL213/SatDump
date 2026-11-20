@@ -64,6 +64,9 @@ namespace satdump
 
                 // PLL
                 pll = std::make_shared<dsp::PLLCarrierTrackingBlock>(agc->output_stream, d_pll_bw, d_pll_max_offset, -d_pll_max_offset);
+                if (d_parameters.value("pll_acquire_frequency", false))
+                    // Average about 100 ms at the PLL's input sample rate.
+                    pll->acquireFrequency((d_resample_after_pll ? d_samplerate : final_samplerate) / 10);
 
                 // Domain conversion
                 pm_psk = std::make_shared<dsp::PMToBPSK>(pll->output_stream, d_resample_after_pll ? d_samplerate : final_samplerate, d_subccarier_offset == 0 ? d_symbolrate : d_subccarier_offset);

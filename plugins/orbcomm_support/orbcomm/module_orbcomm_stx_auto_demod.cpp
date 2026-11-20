@@ -1,6 +1,7 @@
 #include "module_orbcomm_stx_auto_demod.h"
 #include "common/dsp_source_sink/format_notated.h"
 #include "common/repack.h"
+#include "core/config.h"
 #include "imgui/imgui.h"
 #include "logger.h"
 #include <volk/volk.h>
@@ -37,6 +38,7 @@ namespace orbcomm
     {
         name = "Orbcomm STX Auto Demodulator";
         show_freq = false;
+        play_audio = satdump::satdump_cfg.shouldPlayAudio();
 
         MIN_SPS = 1;
         MAX_SPS = 1;
@@ -112,7 +114,11 @@ namespace orbcomm
         add_stx_link(137.6625e6);
     }
 
-    OrbcommSTXAutoDemodModule::~OrbcommSTXAutoDemodModule() {}
+    OrbcommSTXAutoDemodModule::~OrbcommSTXAutoDemodModule()
+    {
+        if (audio_buffer != nullptr)
+            delete[] audio_buffer;
+    }
 
     void OrbcommSTXAutoDemodModule::process()
     {
@@ -135,6 +141,15 @@ namespace orbcomm
         logger->info("Buffer size : " + std::to_string(d_buffer_size));
 
         time_t lastTime = 0;
+
+        if (input_data_type != satdump::pipeline::DATA_FILE && audio::has_sink())
+        {
+            enable_audio = true;
+            audio_buffer = new int16_t[dsp::STREAM_BUFFER_SIZE];
+            audio_sink = audio::get_default_sink();
+            audio_sink->set_samplerate(48e3);
+            audio_sink->start();
+        }
 
         // Start
         BaseDemodModule::start();
@@ -176,6 +191,12 @@ namespace orbcomm
                 lastTime = time(NULL);
                 logger->info("Progress " + std::to_string(round(((double)progress / (double)filesize) * 1000.0) / 10.0) + "%%");
             }
+        }
+
+        if (enable_audio)
+        {
+            enable_audio = false;
+            audio_sink->stop();
         }
 
         logger->info("Demodulation finished");
@@ -228,7 +249,7 @@ namespace orbcomm
         ImGui::BeginGroup();
         {
             stx_link_lst_mtx.lock();
-            if (ImGui::BeginTable("##orbcommsatellitesdemodtable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            if (ImGui::BeginTable("##orbcommsatellitesdemodtable", enable_audio ? 6 : 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
             {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -241,6 +262,11 @@ namespace orbcomm
                 ImGui::Text("SNR");
                 ImGui::TableSetColumnIndex(4);
                 ImGui::Text("State");
+                if (enable_audio)
+                {
+                    ImGui::TableSetColumnIndex(5);
+                    ImGui::Text("Audio");
+                }
 
                 for (auto &freq : stx_link_lst)
                 {
@@ -265,11 +291,45 @@ namespace orbcomm
                         ImGui::TextColored(style::theme.orange, "SYNCING");
                     else
                         ImGui::TextColored(style::theme.red, "NOSYNC");
+                    if (enable_audio)
+                    {
+                        ImGui::TableSetColumnIndex(5);
+                        bool active = audio_freq == freq.first;
+                        ImGui::PushStyleColor(ImGuiCol_Text, active ? style::theme.green.Value : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        if (ImGui::Button((std::string(u8"\uF028##stxaudio") + std::to_string(freq.first)).c_str()))
+                            audio_freq = active ? 0 : freq.first;
+                        ImGui::PopStyleColor();
+                    }
                 }
 
                 ImGui::EndTable();
             }
             stx_link_lst_mtx.unlock();
+
+            if (enable_audio)
+            {
+                const char *btn_icon, *label;
+                ImVec4 color;
+                if (play_audio)
+                {
+                    color = style::theme.green.Value;
+                    btn_icon = u8"\uF028##stxaudiomute";
+                    label = "Audio Playing";
+                }
+                else
+                {
+                    color = style::theme.red.Value;
+                    btn_icon = u8"\uF026##stxaudiomute";
+                    label = "Audio Muted";
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                if (ImGui::Button(btn_icon))
+                    play_audio = !play_audio;
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextUnformatted(label);
+            }
         }
         ImGui::EndGroup();
 

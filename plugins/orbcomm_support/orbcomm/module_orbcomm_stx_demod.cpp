@@ -1,5 +1,6 @@
 #include "module_orbcomm_stx_demod.h"
 #include "common/dsp/filter/firdes.h"
+#include "core/config.h"
 #include "imgui/imgui.h"
 #include "logger.h"
 #include "utils/binary.h"
@@ -12,6 +13,7 @@ namespace orbcomm
     {
         name = "Orbcomm STX Demodulator";
         show_freq = false;
+        play_audio = satdump::satdump_cfg.shouldPlayAudio();
 
         constellation.d_hscale = 2.0; // 80.0 / 100.0;
         constellation.d_vscale = 0.2; // 20.0 / 100.0;
@@ -30,8 +32,19 @@ namespace orbcomm
         // DC Blocking
         iqc = std::make_shared<dsp::CorrectIQBlock<float>>(qua->output_stream);
 
+        // Audio tap
+        tap = std::make_shared<dsp::TapBlock<float>>(iqc->output_stream,
+                                                     [this](float *buf, int n)
+                                                     {
+                                                         if (!(enable_audio && play_audio))
+                                                             return;
+                                                         for (int i = 0; i < n; i++)
+                                                             audio_buffer[i] = std::max(-1.0f, std::min(1.0f, buf[i])) * 32767;
+                                                         audio_sink->push_samples(audio_buffer, n);
+                                                     });
+
         // Filter
-        rrc = std::make_shared<dsp::FIRBlock<float>>(iqc->output_stream, dsp::firdes::root_raised_cosine(1.0, final_samplerate, d_symbolrate, 0.4, 31));
+        rrc = std::make_shared<dsp::FIRBlock<float>>(tap->output_stream, dsp::firdes::root_raised_cosine(1.0, final_samplerate, d_symbolrate, 0.4, 31));
 
         // Recovery
         float d_clock_gain_omega = 0.25 * 0.175 * 0.175;
@@ -41,7 +54,11 @@ namespace orbcomm
         rec = std::make_shared<dsp::MMClockRecoveryBlock<float>>(rrc->output_stream, final_sps, d_clock_gain_omega, d_clock_mu, d_clock_gain_mu, d_clock_omega_relative_limit);
     }
 
-    OrbcommSTXDemodModule::~OrbcommSTXDemodModule() {}
+    OrbcommSTXDemodModule::~OrbcommSTXDemodModule()
+    {
+        if (audio_buffer != nullptr)
+            delete[] audio_buffer;
+    }
 
     void OrbcommSTXDemodModule::process()
     {
@@ -62,10 +79,20 @@ namespace orbcomm
 
         time_t lastTime = 0;
 
+        if (input_data_type != satdump::pipeline::DATA_FILE && audio::has_sink())
+        {
+            enable_audio = true;
+            audio_buffer = new int16_t[dsp::STREAM_BUFFER_SIZE];
+            audio_sink = audio::get_default_sink();
+            audio_sink->set_samplerate(final_samplerate);
+            audio_sink->start();
+        }
+
         // Start
         BaseDemodModule::start();
         qua->start();
         iqc->start();
+        tap->start();
         rrc->start();
         rec->start();
 
@@ -125,6 +152,12 @@ namespace orbcomm
         delete[] bits_buf;
         delete[] frames;
 
+        if (enable_audio)
+        {
+            enable_audio = false;
+            audio_sink->stop();
+        }
+
         logger->info("Demodulation finished");
 
         if (input_data_type == satdump::pipeline::DATA_FILE)
@@ -137,6 +170,7 @@ namespace orbcomm
         BaseDemodModule::stop();
         qua->stop();
         iqc->stop();
+        tap->stop();
         rrc->stop();
         rec->stop();
         rec->output_stream->stopReader();
@@ -176,6 +210,31 @@ namespace orbcomm
                     ImGui::TextColored(style::theme.orange, "SYNCING");
                 else
                     ImGui::TextColored(style::theme.green, "SYNCED");
+            }
+
+            if (enable_audio)
+            {
+                const char *btn_icon, *label;
+                ImVec4 color;
+                if (play_audio)
+                {
+                    color = style::theme.green.Value;
+                    btn_icon = u8"\uF028##stxaudio";
+                    label = "Audio Playing";
+                }
+                else
+                {
+                    color = style::theme.red.Value;
+                    btn_icon = u8"\uF026##stxaudio";
+                    label = "Audio Muted";
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                if (ImGui::Button(btn_icon))
+                    play_audio = !play_audio;
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextUnformatted(label);
             }
         }
         ImGui::EndGroup();

@@ -324,6 +324,10 @@ namespace satdump
             if (current_decimation < 1)
                 current_decimation = 1;
 
+            ImGui::Checkbox(_("DC correction"), &dc_blocking);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", _("Remove the DC spike before the spectrum, recording and live pipelines. Change while the source is stopped."));
+
             bool disableLO = satdump_cfg.main_cfg["user_interface"]["lock_xconverter_input"]["value"];
             if (assume_started && !disableLO)
                 style::endDisabled();
@@ -699,6 +703,7 @@ namespace satdump
 
     void RecorderApplication::drawContents(ImVec2 win_size)
     {
+        update_vfo_markers();
         float right_width = win_size.x;
         float wf_size = win_size.y;
         float left_width = ImGui::GetCursorPosX();
@@ -763,7 +768,7 @@ namespace satdump
                         float ratio = (mouse_pos.x - left_width - 16 * ui_scale) / (right_width - 9 * ui_scale) - 0.5;
                         ImGui::SetTooltip(
                             "%s",
-                            ((ratio >= 0 ? "" : "- ") + format_notated(abs(ratio) * get_samplerate(), "Hz\n") + format_notated(source_ptr->get_frequency() + ratio * get_samplerate(), "Hz")).c_str());
+                            ((ratio >= 0 ? "" : "- ") + format_notated(abs(ratio) * get_samplerate(), "Hz\n") + format_notated(fft_plot->frequency + ratio * get_samplerate(), "Hz")).c_str());
                     }
 
                     ImGui::EndChild();

@@ -8,6 +8,7 @@
 #include "common/dsp/resamp/smart_resampler.h"
 #include "common/dsp/utils/agc.h"
 #include "common/dsp/utils/correct_iq.h"
+#include "common/dsp/utils/tap.h"
 
 #include "common/dsp/utils/snr_estimator.h"
 #include "stx_deframer.h"
@@ -85,12 +86,14 @@ namespace orbcomm
         std::shared_ptr<dsp::AGCBlock<complex_t>> agc;
         std::shared_ptr<dsp::QuadratureDemodBlock> qua;
         std::shared_ptr<dsp::CorrectIQBlock<float>> iqc;
+        std::shared_ptr<dsp::TapBlock<float>> tap;
         std::shared_ptr<dsp::FIRBlock<float>> rrc;
         std::shared_ptr<dsp::MMClockRecoveryBlock<float>> rec;
         std::shared_ptr<STXDeframerBlock> def;
 
     public:
-        STXDemod(std::shared_ptr<dsp::stream<complex_t>> input, std::function<void(uint8_t *, int)> callback, double samplerate, bool resamp = false);
+        STXDemod(std::shared_ptr<dsp::stream<complex_t>> input, std::function<void(uint8_t *, int)> callback, double samplerate, bool resamp = false,
+                 std::function<void(float *, int)> audio_callback = nullptr);
         void start();
         void stop();
 

@@ -1,0 +1,66 @@
+{
+    "transit_5e5_experimental": {
+        "name": "TRANSIT 5E-5 Telemetry (experimental)",
+        "live": [
+            1
+        ],
+        "frequencies": [
+            [
+                "136 MHz telemetry (NORAD 965)",
+                136650000
+            ]
+        ],
+        "parameters": {
+            "samplerate": {
+                "value": 250000
+            },
+            "baudrate": {
+                "type": "float",
+                "value": 390.594,
+                "name": "PCM baud rate",
+                "description": "Measured 390.594; historical nominal 390.625 bit/s"
+            },
+            "pcm_center": {
+                "type": "float",
+                "value": 10600,
+                "name": "PCM subcarrier center (Hz)"
+            },
+            "pcm_deviation": {
+                "type": "float",
+                "value": 650,
+                "name": "PCM half shift (Hz)"
+            },
+            "freq_shift": {
+                "type": "notated_int",
+                "value": 0,
+                "units": "Hz",
+                "name": "IQ frequency shift (signed)",
+                "description": "Recording center minus satellite frequency. Above center needs NEGATIVE shift. Example: 136.122156 MHz recording, 136.650 MHz satellite -> -527844 Hz. Stop and restart processing to apply changes."
+            },
+            "pam_center": {
+                "type": "float",
+                "value": 5450,
+                "name": "PAM subcarrier center (Hz)"
+            }
+        },
+        "work": {
+            "baseband": {},
+            "soft": {
+                "module": "transit_pm_fsk_demod",
+                "parameters": {
+                    "symbolrate": 390,
+                    "baudrate": 390.594,
+                    "pcm_center": 10600,
+                    "pcm_deviation": 650,
+                    "pam_center": 5450
+                }
+            },
+            "products": {
+                "module": "transit_telemetry_decoder",
+                "parameters": {
+                    "baudrate": 390.594
+                }
+            }
+        }
+    }
+}

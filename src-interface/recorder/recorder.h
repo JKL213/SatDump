@@ -10,6 +10,7 @@
 #include "common/dsp/io/file_sink.h"
 #include "common/dsp/path/splitter.h"
 #include "common/dsp/resamp/smart_resampler.h"
+#include "common/dsp/utils/correct_iq.h"
 #include "common/dsp_source_sink/dsp_sample_source.h"
 #include "common/widgets/constellation.h"
 #include "common/widgets/fft_plot.h"
@@ -140,6 +141,8 @@ namespace satdump
 
         uint64_t current_samplerate = 1e6;
         int current_decimation = 1;
+        bool dc_blocking = false;
+        std::shared_ptr<dsp::CorrectIQBlock<complex_t>> dc_blocker;
 
         nlohmann::json serialize_config();
         void deserialize_config(nlohmann::json in);
@@ -159,6 +162,7 @@ namespace satdump
             std::string id;
             std::string name;
             double freq;
+            double input_shift = 0;
 
             //// Live
             pipeline::Pipeline selected_pipeline;
@@ -174,6 +178,9 @@ namespace satdump
 
         std::mutex vfos_mtx;
         std::vector<VFOInfo> vfo_list;
+        // Snapshot of the running pipeline's name and shift, guarded by vfos_mtx.
+        std::pair<std::string, double> processing_vfo;
+        void update_vfo_markers();
 
         void add_vfo_live(std::string id, std::string name, double freq, pipeline::Pipeline vpipeline, nlohmann::json vpipeline_params);
         void add_vfo_reco(std::string id, std::string name, double freq, dsp::BasebandType type, int decimation = -1);

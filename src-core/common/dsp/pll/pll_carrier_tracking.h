@@ -14,6 +14,8 @@ namespace dsp
         float d_damping, d_loop_bw;
         float d_alpha, d_beta;
         float d_phase, d_freq;
+        int d_acquire_samples = 0, d_acquire_count = 0;
+        double d_acquire_re = 0, d_acquire_im = 0, d_acquire_power = 0;
 
         void work();
 
@@ -21,5 +23,7 @@ namespace dsp
         PLLCarrierTrackingBlock(std::shared_ptr<dsp::stream<complex_t>> input, float loop_bw, float max, float min);
 
         float getFreq() { return d_freq; }
+        // Enable coarse acquisition before start(); disabled by default.
+        void acquireFrequency(int samples) { d_acquire_samples = samples > 1 ? samples : 2; }
     };
 }

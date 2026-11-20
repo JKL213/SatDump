@@ -8,6 +8,7 @@
 #endif
 #include "logger.h"
 #include "common/rimgui.h"
+#include <atomic>
 #include <thread>
 #include "common/widgets/double_list.h"
 
@@ -15,7 +16,8 @@ class RtlSdrSource : public dsp::DSPSampleSource
 {
 protected:
     bool is_open = false, is_started = false;
-    rtlsdr_dev *rtlsdr_dev_obj;
+    rtlsdr_dev *rtlsdr_dev_obj = nullptr;
+    rtlsdr_tuner tuner_type = RTLSDR_TUNER_UNKNOWN;
     static void _rx_callback(unsigned char *buf, uint32_t len, void *ctx);
 
     satdump::widgets::DoubleList samplerate_widget;
@@ -30,14 +32,17 @@ protected:
     bool bias_enabled = false;
     bool lna_agc_enabled = false;
     bool tuner_agc_enabled = false;
+    bool offset_tuning = false;
+    std::string offset_tuning_error;
 
     void set_gains();
     void set_bias();
     void set_ppm();
+    void set_offset_tuning();
 
     std::thread work_thread;
 
-    bool thread_should_run = false;
+    std::atomic<bool> thread_should_run{false};
 
     void mainThread()
     {

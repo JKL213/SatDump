@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i '127s/return false;/return should_run\\(\\);/' plugins/meteor_support/meteor/module_meteor_lrpt_decoder.cpp)",
+      "Bash(git diff *)",
+      "Bash(flatpak-spawn --host bash -c 'cd ~/SatDump/build && make meteor_support -j14 2>&1; echo \"MAKE_RC=$?\"; ls -la --time-style=+%H:%M:%S plugins/libmeteor_support.so')",
+      "Bash(mkdir -p /tmp/claude-1000/-home-jankoch-SatDump/70254568-74c8-45b4-8b31-52b2c8b7089c/scratchpad)",
+      "Bash(flatpak-spawn --host bash -c 'cd ~/SatDump/build && time timeout 600 ./satdump legacy meteor_m2-x_lrpt_80k baseband ~/2026-09-15_14-02-33_1792000SPS_137900000Hz.cf32 ~/lrpt80k_out --samplerate 1792000 --baseband_format f32 -v 2>&1; echo \"SATDUMP_RC=$?\"')",
+      "Bash(awk 'NR%25==1')",
+      "Bash(sed 's/\\\\x1b\\\\[[0-9;]*m//g')",
+      "Read(//home/jankoch/lrpt80k_out/**)",
+      "Bash(flatpak-spawn --host bash -c 'coredumpctl list --since=-15min --no-pager 2>&1 | tail -5')",
+      "Bash(flatpak-spawn --host bash -c 'coredumpctl info 208345 --no-pager 2>&1 | sed -n \"/Stack trace/,\\\\$p\" | head -45')",
+      "Bash(git checkout *)"
+    ]
+  }
+}

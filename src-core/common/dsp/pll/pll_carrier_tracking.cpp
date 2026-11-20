@@ -1,5 +1,6 @@
 #include "pll_carrier_tracking.h"
 #include "common/dsp/utils/fast_trig.h"
+#include <algorithm>
 
 #define M_TWOPI (2 * M_PI)
 
@@ -61,6 +62,32 @@ namespace dsp
                 d_phase += M_TWOPI;
             while (d_phase > M_PI)
                 d_phase -= M_TWOPI;
+        }
+
+        if (d_acquire_samples > 0 && nsamples > 1)
+        {
+            // The phase of the lag-one autocorrelation estimates the carrier offset.
+            // Seed the PLL near the carrier instead of requiring it to pull in from DC.
+            for (int i = 1; i < nsamples; i++)
+            {
+                complex_t diff = input_stream->readBuf[i] * input_stream->readBuf[i - 1].conj();
+                d_acquire_re += diff.real;
+                d_acquire_im += diff.imag;
+                complex_t sample = input_stream->readBuf[i - 1];
+                d_acquire_power += sample.real * sample.real + sample.imag * sample.imag;
+            }
+            d_acquire_count += nsamples - 1;
+            if (d_acquire_count >= d_acquire_samples)
+            {
+                // Retry on silence or uncorrelated noise instead of consuming acquisition.
+                if (std::hypot(d_acquire_re, d_acquire_im) > 0.25 * d_acquire_power)
+                {
+                    d_freq = std::max(d_min_freq, std::min(d_max_freq, float(atan2(d_acquire_im, d_acquire_re))));
+                    d_acquire_samples = 0;
+                }
+                d_acquire_count = 0;
+                d_acquire_re = d_acquire_im = d_acquire_power = 0;
+            }
         }
 
         input_stream->flush();

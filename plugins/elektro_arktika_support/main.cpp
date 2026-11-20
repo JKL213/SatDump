@@ -2,6 +2,7 @@
 #include "cli/ggak_merger.h"
 #include "core/cli/cli.h"
 #include "core/plugin.h"
+#include "elektro_arktika/ggak/module_ggak_instruments.h"
 #include "elektro_arktika/ggak/module_ggak_to_mqtt.h"
 #include "logger.h"
 
@@ -31,6 +32,7 @@ public:
         REGISTER_MODULE_EXTERNAL(evt.modules_registry, elektro_arktika::msugs::MSUGSDecoderModule);
         REGISTER_MODULE_EXTERNAL(evt.modules_registry, elektro::lrit::ELEKTROLRITDataDecoderModule);
         REGISTER_MODULE_EXTERNAL(evt.modules_registry, elektro_arktika::ggak::GGAKToMQTTModule);
+        REGISTER_MODULE_EXTERNAL(evt.modules_registry, elektro_arktika::ggak::GGAKInstrumentsDecoderModule);
     }
 };
 

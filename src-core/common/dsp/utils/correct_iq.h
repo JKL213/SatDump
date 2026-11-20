@@ -1,33 +1,26 @@
 #pragma once
 
 #include "common/dsp/block.h"
-#include <deque>
 
 namespace dsp
 {
 
-    /*
-    Simple Correct IQ block (removes a DC spike).
-
-    This is the simplest implementation I thought of.
-    A DC component will be a constant offset in the raw samples,
-    so correcting for it is as simple as getting the average value
-    (which in a normal situation should be close to 0), and substract it.
-    */
+    // Removes DC using an exponential moving average, independently for I/Q.
 
     template <typename T>
     class CorrectIQBlock : public Block<T, T>
     {
     private:
-        // Just remove a DC spike with a moving average
-        float alpha = 0.0001;
-        float beta = 0;
-        T acc = 0;
+        double alpha;
+        // Double precision prevents the estimator from stalling before the DC
+        // is removed at MHz sample rates (small alpha).
+        double acc_i = 0;
+        double acc_q = 0;
 
         void work();
 
     public:
-        CorrectIQBlock(std::shared_ptr<dsp::stream<T>> input, float beta = 0.0001);
+        CorrectIQBlock(std::shared_ptr<dsp::stream<T>> input, float alpha = 0.0001);
         ~CorrectIQBlock();
     };
 } // namespace dsp

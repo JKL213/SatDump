@@ -95,7 +95,6 @@ void RtlSdrSource::set_ppm()
     if (!is_started || ppm == last_ppm)
         return;
 
-    last_ppm = ppm;
     int attempts = 0;
     while (attempts < 20 && rtlsdr_set_freq_correction(rtlsdr_dev_obj, ppm) < 0)
         attempts++;
@@ -105,6 +104,42 @@ void RtlSdrSource::set_ppm()
         logger->debug("Set RTL-SDR PPM Correction to %d", ppm);
     else
         logger->debug("Set RTL-SDR PPM Correction to %d (%d attempts!)", ppm, attempts + 1);
+    if (attempts < 20)
+        last_ppm = ppm;
+}
+
+void RtlSdrSource::set_offset_tuning()
+{
+    if (!is_started)
+        return;
+
+    const int previous_state = rtlsdr_get_offset_tuning(rtlsdr_dev_obj);
+    if (previous_state < 0)
+    {
+        offset_tuning_error = "Unable to read RTL-SDR offset tuning state.";
+        logger->warn("%s", offset_tuning_error.c_str());
+        return;
+    }
+
+    // Avoid retuning the E4000 and reprogramming its filters when unchanged.
+    // A previous error still needs a retry: librtlsdr can update its cached
+    // offset before a hardware write fails.
+    if (previous_state == static_cast<int>(offset_tuning) && offset_tuning_error.empty())
+        return;
+
+    const int result = rtlsdr_set_offset_tuning(rtlsdr_dev_obj, offset_tuning);
+    const int actual_state = rtlsdr_get_offset_tuning(rtlsdr_dev_obj);
+    if (result == 0 && actual_state == static_cast<int>(offset_tuning))
+    {
+        offset_tuning_error.clear();
+        return;
+    }
+
+    offset_tuning_error = result == -2 ? "Offset tuning is not supported by this tuner." :
+                          result == -3 ? "Offset tuning is unavailable in direct sampling mode." :
+                                         "Unable to confirm RTL-SDR offset tuning. Retry the setting.";
+    logger->warn("%s (error %d, state %d)", offset_tuning_error.c_str(), result, actual_state);
+    offset_tuning = (actual_state >= 0 ? actual_state : previous_state) != 0;
 }
 
 void RtlSdrSource::set_settings(nlohmann::json settings)
@@ -122,6 +157,7 @@ void RtlSdrSource::set_settings(nlohmann::json settings)
     lna_agc_enabled = getValueOrDefault(d_settings["lna_agc"], lna_agc_enabled);
     tuner_agc_enabled = getValueOrDefault(d_settings["tuner_agc"], tuner_agc_enabled);
     bias_enabled = getValueOrDefault(d_settings["bias"], bias_enabled);
+    offset_tuning = getValueOrDefault(d_settings["offset_tuning"], offset_tuning);
     ppm_widget.set(getValueOrDefault(d_settings["ppm_correction"], ppm_widget.get()));
     changed_agc = true;
 
@@ -130,6 +166,7 @@ void RtlSdrSource::set_settings(nlohmann::json settings)
         set_bias();
         set_gains();
         set_ppm();
+        set_offset_tuning();
     }
 }
 
@@ -139,6 +176,7 @@ nlohmann::json RtlSdrSource::get_settings()
     d_settings["lna_agc"] = lna_agc_enabled;
     d_settings["tuner_agc"] = tuner_agc_enabled;
     d_settings["bias"] = bias_enabled;
+    d_settings["offset_tuning"] = offset_tuning;
     d_settings["ppm_correction"] = ppm_widget.get();
 
     return d_settings;
@@ -167,11 +205,21 @@ void RtlSdrSource::open()
 
 void RtlSdrSource::start()
 {
+    if (is_started)
+        return;
+
     DSPSampleSource::start();
 
     int index = rtlsdr_get_index_by_serial(d_sdr_id.c_str());
-    if (index != -1 && rtlsdr_open(&rtlsdr_dev_obj, index) != 0)
+    if (index < 0)
+        throw satdump_exception("RTL-SDR device is no longer available!");
+    if (rtlsdr_open(&rtlsdr_dev_obj, index) != 0)
         throw satdump_exception("Could not open RTL-SDR device!");
+
+    tuner_type = rtlsdr_get_tuner_type(rtlsdr_dev_obj);
+    offset_tuning_error.clear();
+    // A reopened device has its own PPM state, regardless of the last session.
+    last_ppm = rtlsdr_get_freq_correction(rtlsdr_dev_obj);
 
     // Set available gains
     int gains[256];
@@ -187,7 +235,12 @@ void RtlSdrSource::start()
     uint64_t current_samplerate = samplerate_widget.get_value();
 
     logger->debug("Set RTL-SDR samplerate to " + std::to_string(current_samplerate));
-    rtlsdr_set_sample_rate(rtlsdr_dev_obj, current_samplerate);
+    if (rtlsdr_set_sample_rate(rtlsdr_dev_obj, current_samplerate) < 0)
+    {
+        rtlsdr_close(rtlsdr_dev_obj);
+        rtlsdr_dev_obj = nullptr;
+        throw satdump_exception("Could not set RTL-SDR samplerate!");
+    }
 
     is_started = true;
     changed_agc = true;
@@ -197,6 +250,10 @@ void RtlSdrSource::start()
     set_bias();
     set_gains();
     set_ppm();
+
+    // librtlsdr compensates the tuner offset inside the RTL2832. The output IQ
+    // remains centred on d_frequency; no software frequency shift is needed.
+    set_offset_tuning();
 
     rtlsdr_reset_buffer(rtlsdr_dev_obj);
     display_gain = (float)gain / 10.0f;
@@ -218,6 +275,7 @@ void RtlSdrSource::stop()
         logger->info("Thread stopped");
         rtlsdr_set_bias_tee(rtlsdr_dev_obj, false);
         rtlsdr_close(rtlsdr_dev_obj);
+        rtlsdr_dev_obj = nullptr;
     }
     is_started = false;
 }
@@ -289,6 +347,22 @@ void RtlSdrSource::drawControlUI()
 
     if (RImGui::Checkbox("Bias-Tee", &bias_enabled))
         set_bias();
+
+    const bool unsupported_offset = is_started && (tuner_type == RTLSDR_TUNER_R820T || tuner_type == RTLSDR_TUNER_R828D);
+    if (unsupported_offset)
+        RImGui::beginDisabled();
+    if (RImGui::Checkbox("Offset Tuning", &offset_tuning))
+        set_offset_tuning();
+    if (unsupported_offset)
+    {
+        RImGui::endDisabled();
+        if (offset_tuning_error.empty())
+            RImGui::Text("Offset tuning is not supported by this tuner.");
+    }
+    else if (is_started && tuner_type == RTLSDR_TUNER_E4000)
+        RImGui::Text("E4000: Offset Tuning reduces the DC spike.\nThe receive frequency stays unchanged.");
+    if (!offset_tuning_error.empty())
+        RImGui::Text("%s", offset_tuning_error.c_str());
 }
 
 void RtlSdrSource::set_samplerate(uint64_t samplerate)

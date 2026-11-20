@@ -14,7 +14,11 @@ namespace elektro_arktika
             int sat_num = 0;
 
             std::mutex records_mtx;
+            GGAKFrame last_frame{};
+            uint64_t frames = 0;
+            uint64_t crc_errors = 0;
             std::vector<SKLRecord> skl_records;
+            int selected_channel = 0;
 
         public:
             GGAKInstrumentsDecoderModule(std::string input_file, std::string output_file_hint, nlohmann::json parameters);

@@ -1,5 +1,6 @@
 #include "handlers/processing/processing.h"
 #include "recorder.h"
+#include "pipeline_tuning.h"
 
 #include "common/utils.h"
 #include "logger.h"
@@ -8,6 +9,32 @@
 
 namespace satdump
 {
+    void RecorderApplication::update_vfo_markers()
+    {
+        // Only the UI thread writes the plot's markers. Rebuild from the VFOs
+        // identified by id, so equal names and removal cannot erase another marker.
+        std::lock_guard<std::mutex> lock(vfos_mtx);
+        fft_plot->vfo_freqs.clear();
+        auto add_pipeline = [this](const std::string &name, double input_frequency, double shift)
+        {
+            fft_plot->vfo_freqs.push_back({name + " (shift " + format_notated(shift, "Hz") + ")", recorder::pipeline_frequency(input_frequency, shift)});
+        };
+        if (!processing_vfo.first.empty())
+            add_pipeline(std::string(_("Pipeline: ")) + processing_vfo.first, frequency_hz, processing_vfo.second);
+        else if (!pipeline_selector.selected_pipeline.id.empty())
+            add_pipeline(std::string(_("Preview: ")) + pipeline_selector.selected_pipeline.name, frequency_hz,
+                         recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, pipeline_selector.getParameters()));
+
+        for (const auto &vfo : vfo_list)
+        {
+            double input_frequency = (double)frequency_hz - vfo.input_shift;
+            if (vfo.live_pipeline)
+                add_pipeline(vfo.name, input_frequency, recorder::pipeline_frequency_shift(vfo.selected_pipeline, vfo.pipeline_params));
+            else
+                fft_plot->vfo_freqs.push_back({vfo.name, input_frequency});
+        }
+    }
+
     void RecorderApplication::add_vfo_live(std::string id, std::string name, double freq, pipeline::Pipeline vpipeline, nlohmann::json vpipeline_params)
     {
         vfos_mtx.lock();
@@ -18,6 +45,7 @@ namespace satdump
             wipInfo.id = id;
             wipInfo.name = name;
             wipInfo.freq = freq;
+            wipInfo.input_shift = (double)frequency_hz - freq;
             wipInfo.selected_pipeline = vpipeline;
             wipInfo.pipeline_params = vpipeline_params;
             wipInfo.lpool = std::make_shared<ctpl::thread_pool>(8);
@@ -32,11 +60,9 @@ namespace satdump
             wipInfo.output_dir = output_dir;
 
             wipInfo.live_pipeline = std::make_shared<pipeline::LivePipeline>(vpipeline, vpipeline_params, output_dir);
-            splitter->add_vfo(id, get_samplerate(), frequency_hz - freq);
+            splitter->add_vfo(id, get_samplerate(), wipInfo.input_shift);
             wipInfo.live_pipeline->start(splitter->get_vfo_output(id), *wipInfo.lpool.get());
             splitter->set_vfo_enabled(id, true);
-
-            fft_plot->vfo_freqs.push_back({name, freq});
 
             vfo_list.push_back(wipInfo);
         }
@@ -58,8 +84,9 @@ namespace satdump
             wipInfo.id = id;
             wipInfo.name = name;
             wipInfo.freq = freq;
+            wipInfo.input_shift = (double)frequency_hz - freq;
 
-            splitter->add_vfo(id, get_samplerate(), frequency_hz - freq);
+            splitter->add_vfo(id, get_samplerate(), wipInfo.input_shift);
 
             if (decimation > 1)
                 wipInfo.decim_ptr = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(splitter->get_vfo_output(id), 1, decimation);
@@ -75,9 +102,6 @@ namespace satdump
                                                get_samplerate() / decimation);
 
             splitter->set_vfo_enabled(id, true);
-
-            if (fft)
-                fft_plot->vfo_freqs.push_back({name, freq});
 
             vfo_list.push_back(wipInfo);
         }
@@ -95,14 +119,6 @@ namespace satdump
         auto it = std::find_if(vfo_list.begin(), vfo_list.end(), [&id](VFOInfo &c) { return c.id == id; });
         if (it != vfo_list.end())
         {
-            if (fft)
-            {
-                std::string name = it->name;
-                auto it2 = std::find_if(fft_plot->vfo_freqs.begin(), fft_plot->vfo_freqs.end(), [&name](auto &c) { return c.first == name; });
-                if (it2 != fft_plot->vfo_freqs.end())
-                    fft_plot->vfo_freqs.erase(it2);
-            }
-
             if (it->file_sink)
                 it->file_sink->stop_recording();
 
@@ -137,9 +153,6 @@ namespace satdump
 
             vfo_list.erase(it);
         }
-        if (vfo_list.size() == 0)
-            if (fft)
-                fft_plot->vfo_freqs.clear();
         vfos_mtx.unlock();
     }
 } // namespace satdump

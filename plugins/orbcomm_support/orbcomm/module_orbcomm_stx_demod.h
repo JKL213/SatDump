@@ -1,9 +1,11 @@
 #pragma once
 
+#include "common/audio/audio_sink.h"
 #include "common/dsp/clock_recovery/clock_recovery_mm.h"
 #include "common/dsp/demod/quadrature_demod.h"
 #include "common/dsp/filter/fir.h"
 #include "common/dsp/utils/correct_iq.h"
+#include "common/dsp/utils/tap.h"
 #include "pipeline/modules/demod/module_demod_base.h"
 #include "stx_deframer.h"
 
@@ -16,10 +18,16 @@ namespace orbcomm
     protected:
         std::shared_ptr<dsp::QuadratureDemodBlock> qua;
         std::shared_ptr<dsp::CorrectIQBlock<float>> iqc;
+        std::shared_ptr<dsp::TapBlock<float>> tap;
         std::shared_ptr<dsp::FIRBlock<float>> rrc;
         std::shared_ptr<dsp::MMClockRecoveryBlock<float>> rec;
 
         STXDeframer stx_deframer;
+
+        bool play_audio;
+        bool enable_audio = false;
+        std::shared_ptr<audio::AudioSink> audio_sink;
+        int16_t *audio_buffer = nullptr;
 
     public:
         OrbcommSTXDemodModule(std::string input_file, std::string output_file_hint, nlohmann::json parameters);

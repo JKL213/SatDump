@@ -22,6 +22,7 @@
 #include "pipeline/live_pipeline.h"
 
 #include "tracking/tracking_widget.h"
+#include <atomic>
 
 namespace satdump
 {
@@ -180,6 +181,11 @@ namespace satdump
         std::vector<VFOInfo> vfo_list;
         // Snapshot of the running pipeline's name and shift, guarded by vfos_mtx.
         std::pair<std::string, double> processing_vfo;
+        std::atomic<bool> vfo_markers_dirty{true};
+        uint64_t last_vfo_marker_freq_hz = 0;
+        std::string last_preview_pipeline_id;
+        nlohmann::json last_preview_params;
+        double last_preview_shift = 0;
         void update_vfo_markers();
 
         void add_vfo_live(std::string id, std::string name, double freq, pipeline::Pipeline vpipeline, nlohmann::json vpipeline_params);
@@ -224,6 +230,7 @@ namespace satdump
                 else
                     fft_plot->actual_sdr_freq = xconv_freq;
             }
+            vfo_markers_dirty.store(true);
         }
 
     public:

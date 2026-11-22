@@ -17,6 +17,7 @@
 
 #include "core/resources.h"
 #include "pipeline/pipeline.h"
+#include "pipeline_tuning.h"
 
 namespace satdump
 {
@@ -326,7 +327,7 @@ namespace satdump
 
             ImGui::Checkbox(_("DC correction"), &dc_blocking);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", _("Remove the DC spike before the spectrum, recording and live pipelines. Change while the source is stopped."));
+                ImGui::SetTooltip("%s", _("Remove the DC spike before the spectrum, recording and live pipelines.\nAlso removes signal components exactly at band centre (e.g. residual carriers); use a frequency offset for such signals.\nChange while the source is stopped."));
 
             bool disableLO = satdump_cfg.main_cfg["user_interface"]["lock_xconverter_input"]["value"];
             if (assume_started && !disableLO)
@@ -461,6 +462,20 @@ namespace satdump
             if (!automated_live_output_dir)
                 pipeline_selector.drawMainparamsLive();
             pipeline_selector.renderParamTable();
+            if (!assume_processing)
+            {
+                nlohmann::json current_params = pipeline_selector.getParameters();
+                double current_shift = recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, current_params);
+                if (pipeline_selector.selected_pipeline.id != last_preview_pipeline_id ||
+                    current_params != last_preview_params ||
+                    current_shift != last_preview_shift)
+                {
+                    last_preview_pipeline_id = pipeline_selector.selected_pipeline.id;
+                    last_preview_params = std::move(current_params);
+                    last_preview_shift = current_shift;
+                    vfo_markers_dirty.store(true);
+                }
+            }
             if (assume_processing)
                 style::endDisabled();
 

@@ -1,16 +1,27 @@
 #include "correct_iq.h"
+#include "core/exception.h"
+#include <algorithm>
 #include <cmath>
-#include <stdexcept>
-#include <type_traits>
 
 namespace dsp
 {
     template <typename T>
-    CorrectIQBlock<T>::CorrectIQBlock(std::shared_ptr<dsp::stream<T>> input, float alpha)
+    double CorrectIQBlock<T>::alpha_from_samplerate(double samplerate, double time_constant_seconds)
+    {
+        if (!std::isfinite(samplerate) || samplerate <= 0.0 || !std::isfinite(time_constant_seconds) || time_constant_seconds <= 0.0)
+            throw satdump_exception("DC correction samplerate and time constant must be finite and positive.");
+        double alpha = std::min(1.0, (1.0 / time_constant_seconds) / samplerate);
+        if (!std::isfinite(alpha) || alpha <= 0.0)
+            throw satdump_exception("DC correction alpha must be in (0, 1].");
+        return alpha;
+    }
+
+    template <typename T>
+    CorrectIQBlock<T>::CorrectIQBlock(std::shared_ptr<dsp::stream<T>> input, double alpha)
         : Block<T, T>(input), alpha(alpha)
     {
-        if (!std::isfinite(alpha) || alpha <= 0.0f || alpha > 1.0f)
-            throw std::invalid_argument("DC correction alpha must be in (0, 1].");
+        if (!std::isfinite(alpha) || alpha <= 0.0 || alpha > 1.0)
+            throw satdump_exception("DC correction alpha must be in (0, 1].");
     }
 
     template <typename T>
@@ -29,20 +40,7 @@ namespace dsp
         }
 
         for (int i = 0; i < nsamples; i++)
-        {
-            const auto sample = Block<T, T>::input_stream->readBuf[i];
-            if constexpr (std::is_same_v<T, complex_t>)
-            {
-                acc_i += alpha * (sample.real - acc_i);
-                acc_q += alpha * (sample.imag - acc_q);
-                Block<T, T>::output_stream->writeBuf[i] = complex_t(sample.real - acc_i, sample.imag - acc_q);
-            }
-            else
-            {
-                acc_i += alpha * (sample - acc_i);
-                Block<T, T>::output_stream->writeBuf[i] = sample - acc_i;
-            }
-        }
+            Block<T, T>::output_stream->writeBuf[i] = correct_iq_sample(Block<T, T>::input_stream->readBuf[i], alpha, acc_i, acc_q);
 
         Block<T, T>::input_stream->flush();
         Block<T, T>::output_stream->swap(nsamples);

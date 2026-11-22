@@ -11,9 +11,23 @@ namespace satdump
 {
     void RecorderApplication::update_vfo_markers()
     {
+        if (!fft_plot)
+            return;
+
+        if (!vfo_markers_dirty.load() && frequency_hz == last_vfo_marker_freq_hz &&
+            pipeline_selector.selected_pipeline.id == last_preview_pipeline_id)
+            return;
+
         // Only the UI thread writes the plot's markers. Rebuild from the VFOs
         // identified by id, so equal names and removal cannot erase another marker.
-        std::lock_guard<std::mutex> lock(vfos_mtx);
+        // Use try_to_lock so the UI thread never blocks while add_vfo_live starts
+        // pipelines; on lock contention, keep displaying the previous markers.
+        std::unique_lock<std::mutex> lock(vfos_mtx, std::try_to_lock);
+        if (!lock.owns_lock())
+            return;
+
+        vfo_markers_dirty.store(false);
+        last_vfo_marker_freq_hz = frequency_hz;
         fft_plot->vfo_freqs.clear();
         auto add_pipeline = [this](const std::string &name, double input_frequency, double shift)
         {
@@ -22,8 +36,12 @@ namespace satdump
         if (!processing_vfo.first.empty())
             add_pipeline(std::string(_("Pipeline: ")) + processing_vfo.first, frequency_hz, processing_vfo.second);
         else if (!pipeline_selector.selected_pipeline.id.empty())
-            add_pipeline(std::string(_("Preview: ")) + pipeline_selector.selected_pipeline.name, frequency_hz,
-                         recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, pipeline_selector.getParameters()));
+        {
+            last_preview_pipeline_id = pipeline_selector.selected_pipeline.id;
+            last_preview_params = pipeline_selector.getParameters();
+            last_preview_shift = recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, last_preview_params);
+            add_pipeline(std::string(_("Preview: ")) + pipeline_selector.selected_pipeline.name, frequency_hz, last_preview_shift);
+        }
 
         for (const auto &vfo : vfo_list)
         {
@@ -65,6 +83,7 @@ namespace satdump
             splitter->set_vfo_enabled(id, true);
 
             vfo_list.push_back(wipInfo);
+            vfo_markers_dirty.store(true);
         }
         catch (std::exception &e)
         {
@@ -104,6 +123,7 @@ namespace satdump
             splitter->set_vfo_enabled(id, true);
 
             vfo_list.push_back(wipInfo);
+            vfo_markers_dirty.store(true);
         }
         catch (std::exception &e)
         {
@@ -152,6 +172,7 @@ namespace satdump
             }
 
             vfo_list.erase(it);
+            vfo_markers_dirty.store(true);
         }
         vfos_mtx.unlock();
     }

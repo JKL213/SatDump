@@ -296,6 +296,22 @@ endif()
 
 add_subdirectory(plugins)
 
+option(SATDUMP_BUILD_TESTS "Build standalone regression tests" OFF)
+if(SATDUMP_BUILD_TESTS)
+    enable_testing()
+    find_library(RTLSDR_LIBRARY rtlsdr REQUIRED)
+    add_executable(recorder_frontend_test
+        tests/recorder_frontend_test.cpp
+        plugins/sdr_sources/rtlsdr_sdr_support/rtlsdr_sdr.cpp
+    )
+    target_include_directories(recorder_frontend_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src-interface
+        ${CMAKE_SOURCE_DIR}/plugins/sdr_sources/rtlsdr_sdr_support
+    )
+    target_link_libraries(recorder_frontend_test PRIVATE satdump_core ${RTLSDR_LIBRARY})
+    add_test(NAME recorder_frontend_test COMMAND recorder_frontend_test)
+endif()
+
 # Install configuration
 if((NOT ANDROID) AND ENABLE_INSTALL)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources DESTINATION share/satdump)

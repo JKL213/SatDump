@@ -3,6 +3,43 @@
 Neuester Eintrag oben. Format je Eintrag: Datum, Werkzeug, Getan, Geänderte Dateien,
 Verifiziert, Offen, Annahmen.
 
+## 2026-11-20 (2) — Google Antigravity
+
+**Getan**
+- Schritt 1: `tests/recorder_frontend_test.cpp` als optionales CMake-Target `recorder_frontend_test` hinter `SATDUMP_BUILD_TESTS` (Voreinstellung `OFF`) mit `add_test` in `CMakeLists.txt` eingebunden und `tests/recorder_frontend_test.md` auf den neuen CMake/CTest-Aufruf gekürzt.
+- Schritt 2: `dsp::CorrectIQBlock` (`src-core/common/dsp/utils/correct_iq.{h,cpp}`) auf `double alpha`, `satdump_exception` (`std::runtime_error`), statische Hilfsfunktion `alpha_from_samplerate(samplerate, time_constant_seconds = 1.0 / 50.0)` und gemeinsame Inline-Funktion `dsp::correct_iq_sample` umgestellt; Recorder und Test nutzen `alpha_from_samplerate`. Alle bestehenden Nutzer (`module_demod_base`, `module_psk_demod`, `module_fsk_demod`, `module_sdpsk_demod`, `module_orbcomm_stx_demod`, `stx_demod_hier`, `module_lucky7_demod`) geprüft (unverändertes Standardverhalten mit `alpha = 0.0001`).
+- Schritt 3: `satdump::ndsp::CorrectIQBlock` (`src-core/dsp/utils/correct_iq.{h,cpp}`) auf `double`-Zustand (`alpha`, `acc_i`, `acc_q`) und `dsp::correct_iq_sample` angeglichen; Flowgraph-Registrierungsname `"Utils/Correct IQ"` unverändert gelassen.
+- Schritt 4: `dc_blocking` aus `serialize_config`/`deserialize_config` entfernt (alter globaler Schlüssel wird beim Laden toleriert, aber nicht mehr geschrieben) und stattdessen pro Quelle in `rec_cfg[<Quellenname>]["dc_blocking"]` mit Voreinstellung `false` in `try_load_sdr_settings()` / `stop()` verwaltet (Hilfsfunktionen `load_source_dc_blocking` und `save_source_dc_blocking` in `src-interface/recorder/pipeline_tuning.h`).
+- Schritt 5: In `RecorderApplication::start()` wird jede `std::exception` gefangen und im Fehlerfall nach `source_ptr->start()` werden bereits gestartete Blöcke (`dc_blocker`, `decim_ptr`) und `source_ptr` sauber gestoppt und zurückgesetzt.
+- Schritt 6: Tooltip der Checkbox `"DC correction"` um Hinweis auf Dämpfung von Signalanteilen exakt in Bandmitte (Restträger -> Frequenzversatz nutzen) ergänzt; E4000-Hinweistext in `rtlsdr_sdr.cpp` um Hinweis ergänzt, dass Offset Tuning bevorzugt ist und Software-DC-Korrektur ersetzt.
+- Schritt 7: `RecorderApplication::update_vfo_markers()` prüft `if (!fft_plot) return;`, nutzt `std::unique_lock<std::mutex> lock(vfos_mtx, std::try_to_lock)` (blockiert den UI-Thread nicht, zeigt bei Misserfolg den letzten Stand weiter) und baut die Marker nur bei tatsächlicher Änderung (VFO hinzugefügt/entfernt, Pipeline gestartet/gestoppt, Pipeline-Auswahl/Parameter geändert, Frequenzwechsel) neu auf.
+
+**Geänderte Dateien**
+- `CMakeLists.txt`
+- `tests/recorder_frontend_test.md`
+- `tests/recorder_frontend_test.cpp`
+- `src-core/common/dsp/utils/correct_iq.h`
+- `src-core/common/dsp/utils/correct_iq.cpp`
+- `src-core/dsp/utils/correct_iq.h`
+- `src-core/dsp/utils/correct_iq.cpp`
+- `src-interface/recorder/pipeline_tuning.h`
+- `src-interface/recorder/recorder.h`
+- `src-interface/recorder/recorder.cpp`
+- `src-interface/recorder/recorder_proc.cpp`
+- `src-interface/recorder/recorder_vfo.cpp`
+- `plugins/sdr_sources/rtlsdr_sdr_support/rtlsdr_sdr.cpp`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- Ziele `satdump_core`, `satdump_interface`, `rtlsdr_sdr_support`, `orbcomm_support`, `cubesat_support`, `satdump-ui`, `satdump` und `recorder_frontend_test` gebaut.
+- `ctest --test-dir build --output-on-failure -V` besteht komplett (inkl. Tests für `alpha_from_samplerate`, `ndsp::CorrectIQBlock` und Pro-Quelle-`dc_blocking` samt Toleranz des alten globalen Schlüssels).
+
+**Offen**
+1. Manuelle Hardware-/UI-Abnahme durch Jan (E4000 mit/ohne Offset Tuning, HydraSDR mit DC-Korrektur aus, RTL-SDR mit R820T, Stop/Start, Neustart mit geladenen Einstellungen, mehrere VFOs anlegen und einzeln löschen).
+
+**Annahmen**
+- Keine.
+
 ## 2026-11-20 — Google Antigravity
 
 **Getan**

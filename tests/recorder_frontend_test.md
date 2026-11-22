@@ -1,23 +1,16 @@
 # Recorder frontend regression test
 
-This standalone test uses an existing Linux build of `satdump_core` and compiles
-the changed DC filter and RTL-SDR source directly. It does not open an SDR: the
-RTL-SDR lifecycle and configuration API is replaced by test functions. It does not change the existing
-build directory or require changes to the project's CMake configuration.
+This test exercises the recorder frontend, DC filter and RTL-SDR source without
+opening hardware: the RTL-SDR lifecycle and configuration API is replaced by
+test functions.
 
-From the repository root, with the usual SatDump and librtlsdr build dependencies:
+From the repository root:
 
 ```sh
-test_build=$(mktemp -d /tmp/satdump-recorder-test.XXXXXX)
-c++ -std=c++17 -O2 -DENABLE_I18N=1 -DSOURCE_PATH_SIZE=0 \
-  -I src-core -I src-interface -I plugins/sdr_sources/rtlsdr_sdr_support \
-  tests/recorder_frontend_test.cpp \
-  src-core/common/dsp/utils/correct_iq.cpp \
-  plugins/sdr_sources/rtlsdr_sdr_support/rtlsdr_sdr.cpp \
-  -L "$PWD/build" -Wl,-rpath,"$PWD/build" \
-  -lsatdump_core -lrtlsdr -lvolk -pthread \
-  -o "$test_build/recorder_frontend_test"
-timeout 45s "$test_build/recorder_frontend_test"
+export PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig
+cmake -B build -DSATDUMP_BUILD_TESTS=ON
+cmake --build build -j$(nproc) --target recorder_frontend_test
+ctest --test-dir build --output-on-failure -R recorder_frontend_test
 ```
 
 Coverage:

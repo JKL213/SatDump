@@ -21,19 +21,17 @@ namespace satdump
          */
 
         /** @brief It just removes a DC spike using
-         * the a moving average,
+         * an exponential moving average with double-precision state,
          * respecting each stream type.
          * @param alpha 0.0001
-         * @param beta 0
-         * @param acc 0
          */
         template <typename T>
         class CorrectIQBlock : public BlockSimple<T, T>
         {
         private:
-            float alpha = 0.0001;
-            float beta = 0;
-            T acc = 0;
+            double alpha = 0.0001;
+            double acc_i = 0;
+            double acc_q = 0;
 
         public:
             CorrectIQBlock();
@@ -41,7 +39,11 @@ namespace satdump
 
             uint32_t process(T *input, uint32_t nsamples, T *output);
 
-            void init() {}
+            void init()
+            {
+                acc_i = 0;
+                acc_q = 0;
+            }
 
             nlohmann::json get_cfg(std::string key) { throw satdump_exception(key); }
 

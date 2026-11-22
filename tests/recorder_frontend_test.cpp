@@ -2,6 +2,7 @@
 #include "common/dsp/path/splitter.h"
 #include "common/dsp/utils/correct_iq.h"
 #include "common/dsp/utils/freq_shift.h"
+#include "dsp/utils/correct_iq.h"
 #include "recorder/pipeline_tuning.h"
 #include "rtlsdr_sdr.h"
 #include <cmath>
@@ -233,7 +234,7 @@ static void test_e4000_restart()
 static void test_dc_correction(int samplerate)
 {
     auto input = std::make_shared<dsp::stream<complex_t>>();
-    dsp::CorrectIQBlock<complex_t> correction(input, 50.0f / samplerate);
+    dsp::CorrectIQBlock<complex_t> correction(input, dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(samplerate));
     dsp::SplitterBlock splitter(correction.output_stream);
     splitter.add_output("record");
     splitter.add_output("live");
@@ -290,14 +291,26 @@ static void test_dc_correction(int samplerate)
 static void test_real_dc_correction()
 {
     auto input = std::make_shared<dsp::stream<float>>();
-    for (float alpha : {0.0f, -0.1f, 1.1f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+    for (double alpha : {0.0, -0.1, 1.1, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()})
     {
         bool rejected = false;
         try { dsp::CorrectIQBlock<float> correction(input, alpha); }
-        catch (const std::invalid_argument &) { rejected = true; }
+        catch (const std::runtime_error &) { rejected = true; }
         check(rejected, "invalid DC filter coefficient was accepted");
     }
-    dsp::CorrectIQBlock<float> correction(input, 0.001f);
+    check(std::abs(dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(250000.0) - (50.0 / 250000.0)) < 1e-15, "default alpha_from_samplerate mismatch");
+    check(std::abs(dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(1000.0, 0.1) - 0.01) < 1e-15, "custom time constant alpha_from_samplerate mismatch");
+    check(dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(10.0, 0.02) == 1.0, "alpha_from_samplerate did not clamp to 1.0");
+    for (double invalid : {0.0, -1000.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()})
+    {
+        bool rejected_sr = false, rejected_tau = false;
+        try { dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(invalid, 0.02); }
+        catch (const std::runtime_error &) { rejected_sr = true; }
+        try { dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(250000.0, invalid); }
+        catch (const std::runtime_error &) { rejected_tau = true; }
+        check(rejected_sr && rejected_tau, "invalid samplerate or time constant was accepted");
+    }
+    dsp::CorrectIQBlock<float> correction(input, 0.001);
     correction.start();
     float last = 1;
     for (int block = 0; block < 8; block++)
@@ -310,6 +323,12 @@ static void test_real_dc_correction()
     }
     correction.stop();
     check(std::abs(last) < 0.000001f, "real DC estimator stalled before convergence");
+
+    satdump::ndsp::CorrectIQBlock<complex_t> ndsp_correction;
+    std::vector<complex_t> ndsp_in(4096, complex_t(0.3f, -0.2f)), ndsp_out(4096);
+    for (int block = 0; block < 64; block++)
+        check(ndsp_correction.process(ndsp_in.data(), 4096, ndsp_out.data()) == 4096, "ndsp DC filter changed sample count");
+    check(std::abs(ndsp_out.back().real) < 0.000001f && std::abs(ndsp_out.back().imag) < 0.000001f, "ndsp DC estimator stalled before convergence");
     std::cout << "PASS real DC correction and invalid coefficient rejection\n";
 }
 
@@ -345,6 +364,20 @@ static void test_pipeline_marker()
     std::cout << "PASS pipeline defaults/overrides and marker agreement with the DSP mixer for both signs\n";
 }
 
+static void test_source_dc_blocking_settings()
+{
+    nlohmann::json cfg = {{"dc_blocking", true}};
+    check(!satdump::recorder::load_source_dc_blocking(cfg, "HydraSDR One"), "legacy global dc_blocking enabled DC filter for an unconfigured source");
+    satdump::recorder::save_source_dc_blocking(cfg, "RTL-SDR E4000", true);
+    check(!cfg.contains("dc_blocking"), "legacy global dc_blocking key was written back");
+    check(satdump::recorder::load_source_dc_blocking(cfg, "RTL-SDR E4000"), "per-source dc_blocking was not saved for E4000");
+    check(!satdump::recorder::load_source_dc_blocking(cfg, "HydraSDR One"), "E4000 dc_blocking leaked to HydraSDR");
+    satdump::recorder::save_source_dc_blocking(cfg, "HydraSDR One", false);
+    check(satdump::recorder::load_source_dc_blocking(cfg, "RTL-SDR E4000"), "saving HydraSDR overwrote E4000 dc_blocking");
+    check(!satdump::recorder::load_source_dc_blocking(cfg, "HydraSDR One"), "HydraSDR dc_blocking did not stay disabled");
+    std::cout << "PASS per-source dc_blocking persistence and legacy global key tolerance\n";
+}
+
 int main()
 {
     logger = std::make_shared<slog::Logger>();
@@ -355,6 +388,7 @@ int main()
         test_e4000_restart();
         test_real_dc_correction();
         test_pipeline_marker();
+        test_source_dc_blocking_settings();
         for (int repetition = 0; repetition < 2; repetition++)
             for (int samplerate : {48000, 250000, 2400000, 3200000})
                 test_dc_correction(samplerate);

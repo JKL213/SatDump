@@ -360,7 +360,7 @@ void RtlSdrSource::drawControlUI()
             RImGui::Text("Offset tuning is not supported by this tuner.");
     }
     else if (is_started && tuner_type == RTLSDR_TUNER_E4000)
-        RImGui::Text("E4000: Offset Tuning reduces the DC spike.\nThe receive frequency stays unchanged.");
+        RImGui::Text("E4000: Offset Tuning reduces the DC spike (preferred; software DC correction is not needed).\nThe receive frequency stays unchanged.");
     if (!offset_tuning_error.empty())
         RImGui::Text("%s", offset_tuning_error.c_str());
 }

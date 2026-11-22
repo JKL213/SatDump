@@ -26,7 +26,6 @@ namespace satdump
         out["waterfall_rate"] = waterfall_rate;
         out["waterfall_palette"] = waterfall_palettes[selected_waterfall_palette].name;
         out["baseband_type"] = (std::string)baseband_format;
-        out["dc_blocking"] = dc_blocking;
         if (fft_plot && waterfall_plot && fft)
         {
             out["fft_min"] = fft_plot->scale_min;
@@ -42,7 +41,8 @@ namespace satdump
 
     void RecorderApplication::deserialize_config(nlohmann::json in)
     {
-        dc_blocking = in.value("dc_blocking", false);
+        // Legacy global "dc_blocking" key in recorder_state is tolerated and ignored;
+        // dc_blocking is loaded per SDR in try_load_sdr_settings().
         show_waterfall = in["show_waterfall"].get<bool>();
         waterfall_ratio = in["waterfall_ratio"].get<float>();
         panel_ratio = in["panel_ratio"].get<float>();
@@ -89,6 +89,9 @@ namespace satdump
 
         set_frequency(frequency_hz);
 
+        bool source_started = false;
+        bool decim_started = false;
+        bool dc_started = false;
         try
         {
             current_samplerate = source_ptr->get_samplerate();
@@ -98,11 +101,13 @@ namespace satdump
                 throw satdump_exception("Decimation is too high for this samplerate!");
 
             source_ptr->start();
+            source_started = true;
 
             if (current_decimation > 1)
             {
                 decim_ptr = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(source_ptr->output_stream, 1, current_decimation);
                 decim_ptr->start();
+                decim_started = true;
                 logger->info("Setting up resampler...");
             }
 
@@ -114,16 +119,26 @@ namespace satdump
             if (dc_blocking)
             {
                 // Keep the DC estimator's time constant independent of decimation.
-                dc_blocker = std::make_shared<dsp::CorrectIQBlock<complex_t>>(input, std::min(1.0f, 50.0f / get_samplerate()));
+                dc_blocker = std::make_shared<dsp::CorrectIQBlock<complex_t>>(input, dsp::CorrectIQBlock<complex_t>::alpha_from_samplerate(get_samplerate()));
                 dc_blocker->start();
+                dc_started = true;
                 input = dc_blocker->output_stream;
             }
             splitter->input_stream = input;
             splitter->start();
             is_started = true;
         }
-        catch (std::runtime_error &e)
+        catch (std::exception &e)
         {
+            if (dc_started && dc_blocker)
+                dc_blocker->stop();
+            dc_blocker.reset();
+            if (decim_started && decim_ptr)
+                decim_ptr->stop();
+            decim_ptr.reset();
+            if (source_started && source_ptr)
+                source_ptr->stop();
+            is_started = false;
             sdr_error.set_message(style::theme.red, e.what());
             logger->error(e.what());
         }
@@ -140,22 +155,29 @@ namespace satdump
             dc_blocker->stop();
             dc_blocker.reset();
         }
-        if (current_decimation > 1)
+        if (decim_ptr)
+        {
             decim_ptr->stop();
+            decim_ptr.reset();
+        }
         source_ptr->stop();
         is_started = false;
-        nlohmann::json rec_cfg;
+        nlohmann::json rec_cfg = db->get_user_json("recorder_sdr_settings");
+        if (!rec_cfg.is_object())
+            rec_cfg = nlohmann::json::object();
         rec_cfg["last_used_sdr"] = sources[sdr_select_id].name;
         rec_cfg[sources[sdr_select_id].name] = source_ptr->get_settings();
         rec_cfg[sources[sdr_select_id].name]["samplerate"] = source_ptr->get_samplerate();
         rec_cfg[sources[sdr_select_id].name]["frequency"] = frequency_hz;
         rec_cfg[sources[sdr_select_id].name]["xconverter_frequency"] = xconverter_frequency;
         rec_cfg[sources[sdr_select_id].name]["decimation"] = current_decimation;
+        recorder::save_source_dc_blocking(rec_cfg, sources[sdr_select_id].name, dc_blocking);
         db->set_user_json("recorder_sdr_settings", rec_cfg);
     }
 
     void RecorderApplication::try_load_sdr_settings()
     {
+        dc_blocking = false;
         auto dcfg = db->get_user_json("recorder_sdr_settings");
         if (!dcfg.is_null())
         {
@@ -186,6 +208,7 @@ namespace satdump
                     current_decimation = cfg["decimation"].get<int>();
                 else
                     current_decimation = 1;
+                dc_blocking = recorder::load_source_dc_blocking(dcfg, sources[sdr_select_id].name);
             }
         }
     }
@@ -216,6 +239,7 @@ namespace satdump
                 {
                     std::lock_guard<std::mutex> lock(vfos_mtx);
                     processing_vfo = {pipeline_selector.selected_pipeline.name, recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, pipeline_params)};
+                    vfo_markers_dirty.store(true);
                 }
 
                 is_processing = true;
@@ -240,6 +264,7 @@ namespace satdump
             {
                 std::lock_guard<std::mutex> lock(vfos_mtx);
                 processing_vfo = {};
+                vfo_markers_dirty.store(true);
             }
             logger->trace("Stop pipeline...");
             splitter->set_enabled("live", false);

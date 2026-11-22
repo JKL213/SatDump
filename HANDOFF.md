@@ -3,6 +3,30 @@
 Neuester Eintrag oben. Format je Eintrag: Datum, Werkzeug, Getan, Geänderte Dateien,
 Verifiziert, Offen, Annahmen.
 
+## 2026-11-23 (2) — Codex
+
+**Getan**
+- Shutdown-Fehlerpfad beim aktiven Transit-Recorder abgesichert: Main-Explorer vor dem Abbau unter Mutex abgekoppelt; Hintergrundanforderungen zum Öffnen eines Produkts oder Anlegen eines Recorders prüfen diesen Pointer unter demselben Mutex. Destruktion erfolgt außerhalb des Locks, damit abschließende Verarbeitung ohne Deadlock zurückmelden kann.
+- Explorer wartet vor dem Abbau auf ausstehende Ladeaufträge. Ausgewählte Handler und Recorder-Bäume werden vor dem Processing-Handler freigegeben, damit im Recorder-Destruktor gestartete Nachverarbeitung noch aufgenommen und anschließend gejoint wird.
+- `TaskQueue::wait()` ergänzt; Regressionstest für ausstehende Recorder-Erzeugung, gruppierte/ungegruppierte und ausgewählte/nicht ausgewählte Recorder sowie abschließendes Join ergänzt.
+
+**Geänderte Dateien**
+- `src-interface/main_ui.cpp`, `src-core/explorer/explorer.cpp`
+- `src-core/utils/task_queue.h`, `src-core/utils/task_queue.cpp`
+- `tests/explorer_shutdown_test.cpp`, `CMakeLists.txt`, `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- `satdump-ui` und `explorer_shutdown_test` über `.vscode/host-exec.sh cmake --build build --target explorer_shutdown_test satdump-ui -j4` erfolgreich gebaut.
+- Aus `build/`: `/bin/sh ../.vscode/host-exec.sh ./explorer_shutdown_test` erfolgreich, alle vier Shutdown-Varianten bestanden.
+- CMake-Cache erhalten; für den neuen Test mit `PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig` und `cmake -B build` neu generiert. Keine Installation.
+- Editor-CMake-/CTest-Anbindung nicht funktionsfähig (leere Ziel-/Testlisten, Build/CTest failed); vorhandener Editor-Task meldete „No invocation context“. Daher Host-Wrapper direkt verwendet.
+
+**Offen**
+- Echter Transit-Datei-/GUI-Schließablauf nicht interaktiv reproduziert; kein SDR geöffnet, kein laufendes Programm beendet. Regressionstest prüft den Explorer-Abbau mit simuliertem Recorder und finalem Worker, nicht den GUI-Event-Rückruf oder Transit-DSP.
+
+**Annahmen**
+- Der gemeldete Absturz entspricht dem aus Log und Code belegten Lebensdauerfehler beim abschließenden Öffnungsereignis; kein Core-Dump/Backtrace vorhanden.
+
 ## 2026-11-23 — Codex
 
 **Getan**

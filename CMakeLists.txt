@@ -310,6 +310,9 @@ if(SATDUMP_BUILD_TESTS)
     )
     target_link_libraries(recorder_frontend_test PRIVATE satdump_core ${RTLSDR_LIBRARY})
     add_test(NAME recorder_frontend_test COMMAND recorder_frontend_test)
+    add_executable(explorer_shutdown_test tests/explorer_shutdown_test.cpp)
+    target_link_libraries(explorer_shutdown_test PRIVATE satdump_core)
+    add_test(NAME explorer_shutdown_test COMMAND explorer_shutdown_test)
 endif()
 
 # Install configuration

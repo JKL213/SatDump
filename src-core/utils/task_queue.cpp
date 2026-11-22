@@ -6,6 +6,11 @@ namespace satdump
 
     TaskQueue::~TaskQueue()
     {
+        wait();
+    }
+
+    void TaskQueue::wait()
+    {
         if (task_thread.joinable())
             task_thread.join();
     }

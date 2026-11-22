@@ -149,7 +149,18 @@ namespace satdump
             }
         }
 
-        ExplorerApplication::~ExplorerApplication() {}
+        ExplorerApplication::~ExplorerApplication()
+        {
+            // Finish pending loads while all explorer members are still alive.
+            file_open_queue.wait();
+
+            // Recorders can enqueue final processing from their destructors.
+            // Release every selected/tree reference before joining that work.
+            curr_handler.reset();
+            master_handler.reset();
+            groups_handlers.clear();
+            processing_handler.reset();
+        }
 
         void ExplorerApplication::addHandler(std::shared_ptr<handlers::Handler> h, bool open, bool is_processing)
         {

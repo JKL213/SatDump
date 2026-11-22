@@ -35,6 +35,8 @@
 namespace satdump
 {
     SATDUMP_DLL2 std::shared_ptr<explorer::ExplorerApplication> explorer_app;
+    // Serialize background open requests with detaching the explorer at shutdown.
+    static std::mutex explorer_app_mutex;
 
     SATDUMP_DLL2 bool update_ui = true;
 
@@ -67,6 +69,9 @@ namespace satdump
         eventBus->register_handler<AddRecorderEvent>(
             [](AddRecorderEvent)
             {
+                std::lock_guard<std::mutex> lock(explorer_app_mutex);
+                if (!explorer_app)
+                    return;
                 explorer_app->tryOpenSomethingInExplorer(
                     [](explorer::ExplorerApplication *)
                     {
@@ -74,7 +79,12 @@ namespace satdump
                         eventBus->fire_event<explorer::ExplorerAddHandlerEvent>({std::make_shared<RecorderApplication>(), true}); // TODOREWORK do not bind this directly.
                     });
             });
-        eventBus->register_handler<TryOpenFileInMainExplorerEvent>([](TryOpenFileInMainExplorerEvent e) { explorer_app->tryOpenFileInExplorer(e.path); });
+        eventBus->register_handler<TryOpenFileInMainExplorerEvent>([](TryOpenFileInMainExplorerEvent e)
+        {
+            std::lock_guard<std::mutex> lock(explorer_app_mutex);
+            if (explorer_app)
+                explorer_app->tryOpenFileInExplorer(e.path);
+        });
 
         eventBus->register_handler<StyleOrUINeedUpdateEvent>([&](auto e) { update_ui = true; });
 
@@ -124,7 +134,14 @@ namespace satdump
     void exitMainUI()
     {
         satdump_cfg.saveUser();
-        explorer_app.reset();
+        std::shared_ptr<explorer::ExplorerApplication> closing_explorer;
+        {
+            std::lock_guard<std::mutex> lock(explorer_app_mutex);
+            closing_explorer.swap(explorer_app);
+        }
+        // Destruction joins processing threads which may fire explorer events.
+        // Keep the mutex unlocked and the global pointer empty while joining.
+        closing_explorer.reset();
     }
 
     // TODOREWORKUI

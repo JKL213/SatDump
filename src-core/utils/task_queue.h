@@ -44,6 +44,9 @@ namespace satdump
          */
         ~TaskQueue();
 
+        // Wait for queued work. The caller must prevent concurrent push() calls.
+        void wait();
+
         /**
          * @brief Push a task in the queue.
          * @param task the function to push

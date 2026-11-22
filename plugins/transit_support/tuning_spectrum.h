@@ -3,6 +3,7 @@
 #include "common/dsp/fft/fft_pan.h"
 #include "common/widgets/fft_plot.h"
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 
 namespace transit
@@ -75,9 +76,12 @@ namespace transit
                 dl->AddLine(ImVec2(x, pos.y), ImVec2(x, pos.y + size.y), IM_COL32(235, 185, 55, 180));
                 dl->AddText(ImVec2(x + 3, pos.y + 3), IM_COL32(245, 210, 110, 255), marker.first);
             }
+            const float left = ImGui::GetCursorPosX();
+            char right_label[32];
+            std::snprintf(right_label, sizeof(right_label), "+%g kHz", rate / 2000);
             ImGui::Text("-%g kHz", rate / 2000);
-            ImGui::SameLine(size.x * 0.48f); ImGui::TextUnformatted("0");
-            ImGui::SameLine(size.x * 0.88f); ImGui::Text("+%g kHz", rate / 2000);
+            ImGui::SameLine(left + (size.x - ImGui::CalcTextSize("0").x) / 2); ImGui::TextUnformatted("0");
+            ImGui::SameLine(left + size.x - ImGui::CalcTextSize(right_label).x); ImGui::TextUnformatted(right_label);
         }
     };
 }

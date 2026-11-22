@@ -30,6 +30,7 @@ namespace viterbi
                         int start_state = 0);
         ~CCEncoder();
 
+        void reset() { d_start_state = 0; }
         bool set_frame_size(unsigned int frame_size);
         double rate();
         void work(uint8_t *inbuffer, uint8_t *outbuffer);

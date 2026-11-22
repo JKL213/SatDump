@@ -72,6 +72,7 @@ namespace viterbi
         void work(uint8_t *inbuffer, uint8_t *outbuffer);
         [[deprecated]] void work(uint8_t *inbuffer, uint8_t *outbuffer, int size);
 
+        void reset() { init_viterbi_unbiased(&d_vp); }
         bool set_frame_size(unsigned int frame_size);
         double rate();
     };

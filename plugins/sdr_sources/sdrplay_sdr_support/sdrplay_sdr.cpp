@@ -431,6 +431,9 @@ uint64_t SDRPlaySource::get_samplerate() { return samplerate_widget.get_value();
 
 std::vector<dsp::SourceDescriptor> SDRPlaySource::getAvailableSources()
 {
+    if (!sdrplay_api_enabled.load())
+        return {};
+
     SDRPlayApiInstance api(sdrplay_api_path);
 
     std::vector<dsp::SourceDescriptor> results;

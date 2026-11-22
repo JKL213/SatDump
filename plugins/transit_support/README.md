@@ -44,17 +44,21 @@ comparison. This verifies the tuning direction; recovery is still incomplete.
 
 The PCM defaults are 390.594 bit/s, center 10600 Hz and half shift 650 Hz.
 The analog PAM center defaults to 5450 Hz. These parameters are editable. For historical nominal timing, set `--baudrate 390.625`.
-Live mode uses compact lamps for RF, SYNC, incoming DATA, SAVE/I/O status,
-H/R/X, SF0/SF1 and a separate PAM lock indicator. All lamps, counters, bit indicators and fine-tuning controls
-share one horizontal row; narrow panels scroll sideways instead of wrapping.
-The FFT stays below this row. `C` is the frame counter, `G` the probable sun
-Gray index, and `A` the two ADC counts. Hex words and explanations are available
-on hover over w12/w13. w12 and the low 12 bits of w13 are individual bit lamps;
-unknown meanings are not assigned. Stale flags dim, and X-frame flags are raw
-and amber. The latest counter, probable sun Gray index and PAM ADC values are
-shown beside them. Detailed explanations are in tooltips. The final telemetry
-product is processed after recording. The preview does not claim a calibrated
-SNR. The native SatDump FFT tabs show the filtered RF channel and PCM tones.
+The live view uses four tabs: **RF tuning**, **PCM tones**, **Telemetry** and
+**PAM**. RF spectrum and fine-tuning controls are stacked in the RF tab; PCM
+spectrum, sync/data indicators and demodulator parameters are in the PCM tab.
+Telemetry groups frame counts, H/R/X and SF0/SF1 indicators, a table of the
+latest values, status bits and SAVE/I/O indicators vertically. Narrow panels
+wrap the bit indicators and scroll tab contents vertically. File progress
+remains below the tabs, and output errors remain visible regardless of the tab.
+The downstream decoder uses **Overview**, **History** and **Channels** tabs.
+
+Hex words and explanations are available on hover over w12/w13. w12 and the
+low 12 bits of w13 are individual bit lamps; unknown meanings are not assigned.
+Stale flags dim, and X-frame flags are raw and amber. The value table shows the
+frame counter, probable sun Gray index and two raw PAM ADC counts. The final
+telemetry product is processed after recording. The preview does not claim a
+calibrated SNR.
 The PAM tab shows the last 13 seconds of frequency deviation and relative
 subcarrier envelope, 34 segment medians, and the segment-8 status waveform.
 The RF center line is zero; PCM markers are at +/-650 Hz (or the configured
@@ -244,9 +248,9 @@ It checks the native tuning FFT, renders the live widgets, confirms that the sof
 file is nonempty while reception is still active, and verifies that every preview
 frame appears in the saved product. The product UI test opens an empty product
 before a populated one and checks that the latter's axis ranges contain its data.
-It also checks that the live status controls stay on one line without vertical
-clipping at panel widths of 1450 and 480 pixels, with horizontal scrolling in
-the narrow panel.
+It also checks every live and decoder tab at panel widths of 1450, 480 and
+320 pixels and UI scales of 1x and 1.5x. Tab contents scroll vertically, with
+no horizontal status strip; file progress stays visible below the tabs.
 
 `transit_pam_test` checks clean framing, calibration rejection, absent signal,
 truncation, shortened reset intervals, and the actual subcarrier FIR/FM path

@@ -40,6 +40,8 @@ namespace elektro_arktika
         {
 
             std::string directory = d_output_file_hint.substr(0, d_output_file_hint.rfind('/')) + "/MSU-GS";
+            if (!std::filesystem::exists(directory))
+                std::filesystem::create_directories(directory);
 
             uint8_t cadu[1024];
 
@@ -59,6 +61,8 @@ namespace elektro_arktika
             {
                 // Read buffer
                 read_data((uint8_t *)cadu, 1024);
+                if (!should_run())
+                    break;
 
                 int vcid = (cadu[5] >> 1) & 7;
                 int vcid_2 = (cadu[11] >> 1) & 7;
@@ -150,6 +154,7 @@ namespace elektro_arktika
             else
                 logger->error("No further MSU-GS processing will be performed for this ELEKTRO sat!");
 
+#if 0
             {
                 std::vector<std::pair<double, double>> points;
 
@@ -204,6 +209,7 @@ namespace elektro_arktika
                 }
 
             }
+#endif
 
             // MSUVIS1 TODOREWORK
             {

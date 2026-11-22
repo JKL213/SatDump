@@ -212,24 +212,61 @@ namespace transit
     {
         ImGui::Begin("TRANSIT 5E-5 Telemetry (experimental)", nullptr, window ? 0 : NOWINDOW_FLAGS);
         std::lock_guard<std::mutex> lock(ui_mutex);
-        begin_status_row();
-        ImGui::Text("Subframes: %llu | H: %llu R: %llu X: %llu", (unsigned long long)frames.load(),
-            (unsigned long long)healthy, (unsigned long long)rotated, (unsigned long long)suspect);
-        ImGui::SameLine(); format_lamps(latest, frames != 0);
-        ImGui::SameLine(); frame_values(latest, frames != 0);
-        ImGui::SameLine();
-        status_flags(latest, frames != 0);
-        end_status_row();
-        if (!counter_history.empty())
+        if (ImGui::BeginTabBar("Telemetry tabs", ImGuiTabBarFlags_FittingPolicyResizeDown | ImGuiTabBarFlags_TabListPopupButton))
         {
-            ImGui::PlotLines("Counter", counter_history.data(), counter_history.size(), 0, "Accepted H/R samples (gaps omitted)", 0, 65535, ImVec2(0, 80));
-            ImGui::PlotLines("Sun Gray (probable)", sun_history.data(), sun_history.size(), 0, nullptr, 0, 15, ImVec2(0, 80));
-            ImGui::PlotLines("PAM ADC w7", pam_history.data(), pam_history.size(), 0, "Counts, uncalibrated sensor units", 0, 1023, ImVec2(0, 80));
-        }
-        if (ImGui::TreeNode("Digital commutator: last observed counts (may be stale)"))
-        {
-            for (int i = 0; i < 42; ++i) if (channels[i] >= 0) ImGui::Text("CH%02d: %d", i, channels[i]);
-            ImGui::TreePop();
+            if (ImGui::BeginTabItem("Overview"))
+            {
+                ImGui::BeginChild("Overview panel", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+                ImGui::Text("Subframes: %llu", (unsigned long long)frames.load());
+                ImGui::Text("Normal (H): %llu", (unsigned long long)healthy);
+                ImGui::Text("Rotated (R): %llu", (unsigned long long)rotated);
+                ImGui::Text("Suspect (X): %llu", (unsigned long long)suspect);
+                if (frames == 0) ImGui::TextDisabled("Waiting for telemetry...");
+                frame_details(latest, frames != 0);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("History"))
+            {
+                ImGui::BeginChild("History panel", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+                if (counter_history.empty()) ImGui::TextWrapped("Waiting for accepted H/R samples...");
+                else
+                {
+                    ImGui::TextWrapped("Accepted H/R samples; gaps omitted. ADC counts are uncalibrated.");
+                    ImGui::TextUnformatted("Frame counter");
+                    ImGui::PlotLines("##Counter", counter_history.data(), counter_history.size(), 0, nullptr, 0, 65535, ImVec2(-1, 80 * ui_scale));
+                    ImGui::TextUnformatted("Sun Gray (probable)");
+                    ImGui::PlotLines("##Sun", sun_history.data(), sun_history.size(), 0, nullptr, 0, 15, ImVec2(-1, 80 * ui_scale));
+                    ImGui::TextUnformatted("PAM ADC w7");
+                    ImGui::PlotLines("##ADC", pam_history.data(), pam_history.size(), 0, nullptr, 0, 1023, ImVec2(-1, 80 * ui_scale));
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Channels"))
+            {
+                ImGui::BeginChild("Channels panel", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
+                ImGui::TextWrapped("Digital commutator: last observed counts (may be stale).");
+                if (ImGui::BeginTable("Commutator", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV))
+                {
+                    ImGui::TableSetupColumn("Channel");
+                    ImGui::TableSetupColumn("Counts");
+                    ImGui::TableHeadersRow();
+                    for (int i = 0; i < 42; ++i)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::Text("CH%02d", i);
+                        ImGui::TableNextColumn();
+                        if (channels[i] >= 0) ImGui::Text("%d", channels[i]);
+                        else ImGui::TextDisabled("--");
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
         }
         ImGui::ProgressBar(filesize ? float(bytes.load()) / filesize : 0.0f);
         ImGui::End();

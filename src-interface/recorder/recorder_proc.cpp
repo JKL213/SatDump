@@ -102,6 +102,9 @@ namespace satdump
 
             source_ptr->start();
             source_started = true;
+            if (sdr_select_id < 0 || sdr_select_id >= (int)sources.size() ||
+                !recorder::is_e4000_source(sources[sdr_select_id], source_ptr->d_settings))
+                dc_blocking = false;
 
             if (current_decimation > 1)
             {
@@ -208,7 +211,8 @@ namespace satdump
                     current_decimation = cfg["decimation"].get<int>();
                 else
                     current_decimation = 1;
-                dc_blocking = recorder::load_source_dc_blocking(dcfg, sources[sdr_select_id].name);
+                if (recorder::is_e4000_source(sources[sdr_select_id], source_ptr->d_settings))
+                    dc_blocking = recorder::load_source_dc_blocking(dcfg, sources[sdr_select_id].name);
             }
         }
     }

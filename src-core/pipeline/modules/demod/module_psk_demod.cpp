@@ -65,8 +65,9 @@ namespace satdump
                 is_oqpsk = constellation_type == "oqpsk";
                 if (is_oqpsk)
                 {
-                    MIN_SPS = 1.6;
-                    MAX_SPS = 2.4;
+                    // DelayOneImagBlock delays Q by 1 sample, which equals 0.5 symbols only at 2.0 SPS.
+                    MIN_SPS = 2.0;
+                    MAX_SPS = 2.0;
                 }
 
                 // Window Name in the UI

@@ -3,6 +3,7 @@
 #include "core/exception.h"
 #include "logger.h"
 #include "sdrplay/sdrplay_api.h"
+#include <atomic>
 
 #ifdef _WIN32
 #include "libs/dlfcn/dlfcn.h"
@@ -11,6 +12,7 @@
 #endif
 
 extern std::string sdrplay_api_path;
+extern std::atomic<bool> sdrplay_api_enabled;
 
 class SDRPlayApiInstance
 {
@@ -44,6 +46,9 @@ private:
 public:
     SDRPlayApiInstance(std::string path)
     {
+        if (!sdrplay_api_enabled.load())
+            throw satdump_exception("SDRplay API is disabled in Plugin Settings");
+
         logger->trace("Loading SDRPlay API from " + path + "...");
 
         dynlib = dlopen(path.c_str(), RTLD_LAZY);

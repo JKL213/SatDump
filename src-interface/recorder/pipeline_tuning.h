@@ -1,9 +1,16 @@
 #pragma once
 
+#include "common/dsp_source_sink/dsp_sample_source.h"
 #include "pipeline/pipeline.h"
 
 namespace satdump::recorder
 {
+    inline bool is_e4000_source(const dsp::SourceDescriptor &desc, const nlohmann::json &settings)
+    {
+        return desc.source_type == "rtlsdr" && settings.is_object() &&
+               settings.contains("tuner_type") && settings["tuner_type"].is_number_integer() &&
+               settings["tuner_type"].get<int>() == 1; // RTLSDR_TUNER_E4000
+    }
     // Match LivePipeline's parameter precedence for its first IQ-processing step.
     inline double pipeline_frequency_shift(const pipeline::Pipeline &pipeline, const nlohmann::json &parameters)
     {

@@ -3,6 +3,155 @@
 Neuester Eintrag oben. Format je Eintrag: Datum, Werkzeug, Getan, Geänderte Dateien,
 Verifiziert, Offen, Annahmen.
 
+## 2026-11-23 — Codex
+
+**Getan**
+- Transit-Live-Oberfläche auf vier Tabs verteilt: RF tuning (Spektrum und Feinabstimmung), PCM tones (Spektrum und Demodulationswerte), Telemetry (Format, Werte, Statusbits und Ausgabe), PAM (Analogdiagnosen).
+- Lange horizontale Statuszeile in den Decoder-Modulen entfernt. Werte stehen in Tabellen/vertikalen Abschnitten, Statusbits umbrechen bei Platzmangel. Tabinhalte scrollen vertikal; Dateifortschritt/Abort bleiben darunter. Schreibfehler erscheinen unabhängig vom aktiven Tab.
+- Nachgeschalteten Telemetrie-Decoder in Overview, History und Channels gegliedert; Kanalwerte als Tabelle dargestellt.
+- FFT-Achsenbeschriftung rechts an der tatsächlichen Textbreite ausgerichtet. Bestehende kompakte Produktinspektor-Ansicht bleibt erhalten.
+- Bestehende UI-Tests auf Tabwechsel, schmale Panels, Skalierung und fehlenden horizontalen Überlauf umgestellt; README aktualisiert.
+
+**Geänderte Dateien**
+- `plugins/transit_support/module_transit_demod.cpp`
+- `plugins/transit_support/module_transit_decoder.cpp`
+- `plugins/transit_support/telemetry_widgets.h`
+- `plugins/transit_support/tuning_spectrum.h`
+- `plugins/transit_support/tests/product_test.cpp`
+- `plugins/transit_support/tests/live_test.cpp`
+- `plugins/transit_support/README.md`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- `cmake --build build -j4 --target transit_support transit_product_test transit_live_test satdump-ui` erfolgreich; geänderte Transit-Ziele anschließend erneut gebaut.
+- Aus `build/`: `./plugins/transit_product_test transit_pam_validation/transit_5e5_experimental_transit/product.cbor` erfolgreich. Alle Tabs bei 1450/480/320 px und 1x/1.5x UI-/Schriftskalierung geprüft, inklusive eingebettetem Live-/Dateimodus und sichtbarem Fortschrittsbereich.
+- Aus `build/`: `./plugins/transit_live_test` erfolgreich. Gefüllte Live-Tabs bei 1100/480/320 px und 1x/1.5x ohne horizontalen Überlauf; 59 Subframes, 15360 Soft-Bytes und 3 PAM-Frames gespeichert; vorhandene EOF-/Importprüfungen bestanden.
+
+**Offen**
+- Keine interaktive Sichtprüfung im laufenden Desktop-Fenster; UI-Prüfungen erfolgten mit ImGui/ImPlot ohne Displayserver. SatDump und SDR-Hardware wurden nicht gestartet oder beendet.
+
+**Annahmen**
+- „Nicht horizontal“ bezieht sich auf die lange Inhalts-/Statuszeile; die native Tab-Leiste bleibt wie bei anderen Decodern oben.
+
+## 2026-11-22 (5) — Codex
+
+**Getan**
+- Absturzsuche in Legacy-CLI auf Jans Wunsch abgebrochen; keine Änderungen an CLI-Dateien.
+- Unter Settings → Plugin Settings → SDRPlay Support einen Enable/Disable-Knopf mit Status ergänzt. Er deaktiviert die SDRplay-Anbindung innerhalb von SatDump.
+- Bei deaktivierter API überspringt die Gerätesuche SDRplay; neue API-Instanzen werden vor `dlopen` abgewiesen. Bereits geöffnete SDRplay-Quellen sperren den Knopf; zum Abschalten erst stoppen und eine andere Quelle auswählen.
+- Einstellung wird über den vorhandenen Save-Mechanismus als `plugin_settings.sdrplay_enabled` gespeichert; bei fehlendem Schlüssel gilt weiterhin enabled.
+
+**Geänderte Dateien**
+- `plugins/sdr_sources/sdrplay_sdr_support/main.cpp`
+- `plugins/sdr_sources/sdrplay_sdr_support/dynload.h`
+- `plugins/sdr_sources/sdrplay_sdr_support/sdrplay_sdr.h`
+- `plugins/sdr_sources/sdrplay_sdr_support/sdrplay_sdr.cpp`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- `cmake --build build -j4 --target sdrplay_sdr_support satdump-ui` erfolgreich.
+- `git diff --check` ohne Befund vor diesem Eintrag.
+
+**Offen**
+- GUI-Klick, Speichern/Neustart und Sperre mit einer echten SDRplay-Quelle nicht interaktiv getestet; API-Bibliothek und Systemdienst in den geprüften Standardpfaden nicht gefunden.
+
+**Annahmen**
+- Auf die Rückfrage Systemdienst vs. lokale Anbindung lag bei Umsetzung keine Antwort vor. Nach angekündigter Annahme wurde nur die Anbindung in SatDump umgesetzt; der Knopf stoppt keinen systemweiten Dienst.
+
+## 2026-11-22 (4) — Codex
+
+**Getan**
+- Editor-Build-Tasks und GDB-Starter verwenden einen gemeinsamen Wrapper: Nur bei vorhandener `/.flatpak-info` wird `flatpak-spawn --host` genutzt; sonst wird der Befehl direkt ausgeführt.
+- Build-Tasks auf `cmake --build` umgestellt. Neuer UI-Task baut `satdump-ui` und `meteor_support`; die UI-Debug-Konfiguration verwendet diesen statt nur das Meteor-Plugin zu bauen.
+
+**Geänderte Dateien**
+- `.vscode/tasks.json`, `.vscode/launch.json`, `.vscode/gdb-host.sh`, neu `.vscode/host-exec.sh` (alle durch `.gitignore` ignoriert).
+- `HANDOFF.md`.
+
+**Verifiziert (per Befehl geprüft)**
+- Neuer UI-Task-Befehl mit `/bin/sh .vscode/host-exec.sh cmake --build ... --target satdump-ui meteor_support -j$(nproc)` erfolgreich: beide Ziele gebaut.
+- `.vscode/gdb-host.sh --version` startet GNU gdb 18.1 erfolgreich.
+- Beide JSON-Konfigurationsdateien mit Python geparst; erfolgreich.
+
+**Offen**
+- Start über die Editor-Oberfläche und tatsächliche Debug-Sitzung nicht ausgeführt. Flatpak-Zweig in dieser Umgebung nicht ausführbar und nicht getestet.
+
+**Annahmen**
+- Keine Flatpak-/Distrobox-Marker in der geprüften Umgebung vorhanden; der direkte Build und GDB-Aufruf funktionieren dort.
+
+## 2026-11-22 (3) — Codex
+
+**Getan**
+- In `RecorderApplication::drawMenu()` wird eine während der Dateiauswahl von File Source erkannte Frequenzänderung über `set_frequency()` an den Recorder weitergegeben. Dadurch werden Tunerreferenz, FFT-Skala und VFO-Marker aktualisiert, bevor `start()` die Recorderfrequenz erneut auf die Quelle setzt.
+- Die bestehende Dateinamen-Erkennung in File Source bleibt erhalten; ohne erkannte Frequenzänderung bleibt die manuelle Referenz bestehen.
+
+**Geänderte Dateien**
+- `src-interface/recorder/recorder.cpp` (nur die Übergabe nach `drawControlUI()` ergänzt; bestehende Änderungen erhalten).
+- `HANDOFF.md`.
+
+**Verifiziert (per Befehl geprüft)**
+- `cmake --build build -j4 --target satdump-ui recorder_frontend_test` erfolgreich.
+- `ctest --test-dir build --output-on-failure -R '^recorder_frontend_test$'`: 1/1 bestanden. Der vorhandene Test deckt den neuen GUI-Ablauf nicht ab.
+- `git diff --check` ohne Befund vor dem Protokolleintrag.
+
+**Offen**
+- Interaktive Prüfung: Datei mit Frequenzkennung auswählen, Tuner-/FFT-Anzeige prüfen und Wiedergabe starten. GUI wurde in dieser Sitzung nicht gestartet.
+
+**Annahmen**
+- Die gewünschte Frequenzkennung entspricht einem bereits von `wav::tryParseFilenameMetadata()` unterstützten Dateinamenformat; der konkrete Dateiname war im Screenshot nicht lesbar.
+
+## 2026-11-22 (2) — Google Antigravity
+
+**Getan**
+- **ELEKTRO-xRIT/xRPT & GGAK-Pipelines sowie Viterbi-/Deframer-/OQPSK-Einrastfehler**:
+  - **OQPSK-Resampling (`src-core/pipeline/modules/demod/module_psk_demod.cpp`, `resources/pipelines/Elektro_Arktika.json`)**:
+    - `DelayOneImagBlock` verzögert Q um genau 1 Sample, was nur bei exakt `2.0 SPS` einer halben Symboldauer ($0.5\,T_{\text{sym}}$) entspricht. In `PSKDemodModule` wurde für `is_oqpsk` `MIN_SPS = 2.0; MAX_SPS = 2.0;` gesetzt und in `elektro_hrit` (`Elektro_Arktika.json`) das fehlerhafte `"max_sps": 3` entfernt (das zuvor z. B. bei 6 MS/s zu `2.61 SPS` und damit zu $0.383\,T_{\text{sym}}$ I/Q-Versatz vor der Taktrückgewinnung führte).
+    - Costas-Loop-Bandbreite in `Elektro_Arktika.json` für `elektro_hrit` von `0.001` auf `0.003` angehoben und für `elektro_lrit` von `0.0145` auf `0.005` reduziert.
+    - Die bewährten `elektro_ggak`-`pm_demod`-Parameter (`"pll_bw": 0.01`, `"pll_acquire_frequency": true`, `"clock_gain_mu": 0.05`, `"clock_gain_omega": 0.000625`) auf `elektro_ggak_mqtt`, `arktika_m1_ggak` und `arktika_m2_ggak` übertragen sowie den fehlenden `elektro_arktika_ggak_instruments`-Schritt in `arktika_m1_ggak` und `arktika_m2_ggak` ergänzt.
+  - **`Viterbi1_2`, `CCDecoder` & `CCEncoder` (`src-core/common/codings/viterbi/*`)**:
+    - Out-of-Bounds-Read von 12–13 Bytes über `ber_soft_buffer` in `ST_IDLE` durch Vergrößerung von `ber_test_buffer` und `ber_soft_buffer` um `TAIL_SYMBOLS + 4` (`TAIL_SYMBOLS = 12`) und Kopieren von `test_len` Symbolen behoben.
+    - `reset()` in `CCDecoder` (`init_viterbi_unbiased(&d_vp)`) und `CCEncoder` (`d_start_state = 0`) ergänzt; in `ST_IDLE` wird jeder Kandidat `(iq_swap, phase, shift)` von einem unvoreingenommenen Trellis aus getestet und `cc_decoder` beim Einrasten zurückgesetzt.
+    - In `ST_SYNCED` wird der Eingabepuffer nicht mehr in-place überschrieben (`rot_buffer`), bei `d_shift == 1` das ungerade Rand-Symbol über Puffergrenzen hinweg per `d_carry_symbol` übernommen (statt bei jedem 8192-Symbol-Block 1 Symbol zu verlieren) und der 12-Symbol-Lookahead-Tail (`d_tail_carry[12]`) blockübergreifend fortgeführt, sodass `cc_decoder.work` ohne Bitverlust an 4096-Bit-Grenzen durchläuft.
+    - `get_ber()` überspringt die ersten 6 Bitpaare (`TAIL_SYMBOLS = 12`), während derer sich das Schieberegister von `CCEncoder` füllt.
+  - **CCSDS-Deframer & Decoder (`bpsk_ccsds_deframer.cpp`, `module_ccsds_conv_concat_decoder.cpp`, `module_elektro_lrit_data_decoder.cpp`, `module_msugs.cpp`)**:
+    - In `BPSK_CCSDS_Deframer::work()` wieder 1 Bitfehler im 32-Bit-ASM während `STATE_NOSYNC` (`compare_32(shifter, CADU_ASM) < d_state`) zugelassen.
+    - In `CCSDSConvConcatDecoderModule`, `ElektroLRITDataDecoderModule` und `MSUGSDecoderModule` im `DATA_DSP_STREAM`-Pfad `if (!should_run()) break;` nach `read_data()` ergänzt (verhindert Hängen beim Stoppen von Live-Pipelines).
+    - In `CCSDSConvConcatDecoderModule::getModuleStats()` `rs_avg` durch `d_rs_interleaving_depth` statt stets durch `4` geteilt.
+    - In `MSUGSDecoderModule::process()` das Ausgabeverzeichnis vor dem Öffnen von `data_unknown.bin` angelegt und die tote 103-Millionen-Pixel-`printf`-Debugschleife deaktiviert (`#if 0`).
+- **Checkbox `"DC correction"` nur für E4000-Tuner (`rtlsdr_sdr.cpp`, `pipeline_tuning.h`, `recorder.cpp`, `recorder_proc.cpp`)**:
+  - `RtlSdrSource::open()` fragt den Tunertyp bereits beim Auswählen des Geräts über `rtlsdr_get_tuner_type()` ab und legt ihn in `d_settings["tuner_type"]` ab (wird in `set_settings()`, `get_settings()` und `start()` fortgeführt); auch der Offset-Tuning-Hinweis in `RtlSdrSource::drawControlUI()` ist damit bereits im gestoppten Zustand gerätespezifisch.
+  - Neue Hilfsfunktion `satdump::recorder::is_e4000_source(desc, settings)` in `src-interface/recorder/pipeline_tuning.h` prüft auf `desc.source_type == "rtlsdr"` und `tuner_type == RTLSDR_TUNER_E4000` (`1`).
+  - Die Checkbox `"DC correction"` (`dc_blocking`) wird in `RecorderApplication::drawMenu()` nur angezeigt, wenn `is_e4000_source(...)` zutrifft; für alle anderen Quellen/Tuner (z. B. R820T/R828D, HydraSDR, Airspy) wird `dc_blocking` in `drawMenu()`, `try_load_sdr_settings()` und `start()` auf `false` gezwungen.
+
+**Geänderte Dateien**
+- `src-core/pipeline/modules/demod/module_psk_demod.cpp`
+- `src-core/common/codings/viterbi/cc_decoder.h`
+- `src-core/common/codings/viterbi/cc_encoder.h`
+- `src-core/common/codings/viterbi/viterbi_1_2.h`
+- `src-core/common/codings/viterbi/viterbi_1_2.cpp`
+- `src-core/common/codings/deframing/bpsk_ccsds_deframer.cpp`
+- `src-core/pipeline/modules/ccsds/module_ccsds_conv_concat_decoder.cpp`
+- `plugins/elektro_arktika_support/elektro_arktika/lrit/module_elektro_lrit_data_decoder.cpp`
+- `plugins/elektro_arktika_support/elektro_arktika/instruments/msugs/module_msugs.cpp`
+- `resources/pipelines/Elektro_Arktika.json`
+- `plugins/sdr_sources/rtlsdr_sdr_support/rtlsdr_sdr.cpp`
+- `src-interface/recorder/pipeline_tuning.h`
+- `src-interface/recorder/recorder.cpp`
+- `src-interface/recorder/recorder_proc.cpp`
+- `tests/recorder_frontend_test.cpp`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- Ziele `satdump_core`, `satdump_interface`, `orbcomm_support`, `elektro_arktika_support`, `transit_support`, `rtlsdr_sdr_support`, `satdump`, `satdump-ui`, `recorder_frontend_test`, `transit_protocol_test`, `transit_pam_test`, `transit_live_test`, `transit_product_test` fehlerfrei gebaut.
+- `ctest --test-dir build --output-on-failure -V` besteht komplett (inkl. Tests für E4000-Erkennung in `open()`/`is_e4000_source()` gegen R820T/HydraSDR sowie `test_viterbi_1_2_continuity` über 4 Blöcke für `shift = 0` und `shift = 1`).
+- `./build/plugins/transit_protocol_test`, `./build/plugins/transit_pam_test` und `./build/plugins/transit_live_test` bestehen komplett.
+
+**Offen**
+- Keine offenen Punkte aus dieser Aufgabe.
+
+**Annahmen**
+- Keine.
+
 ## 2026-11-22 — Google Antigravity
 
 **Getan**

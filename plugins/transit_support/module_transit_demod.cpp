@@ -177,54 +177,89 @@ namespace transit
         ImGui::Begin(name.c_str(), nullptr, window ? 0 : NOWINDOW_FLAGS);
         auto peak = rf_spectrum ? rf_spectrum->peak() : TuningSpectrum::Peak{};
         auto ps = pam ? pam->snapshot() : PamTap::Snapshot{};
-        begin_status_row();
+        Frame latest;
+        uint64_t subframes;
+        bool fresh, receiving;
         {
             std::lock_guard<std::mutex> lock(preview_mutex);
-            const bool fresh = preview.synced() && std::chrono::steady_clock::now() - last_frame_received < std::chrono::seconds(2);
-            lamp("RF", peak.visible, "Carrier candidate: peak is >10 dB above the local spectral median. This is not a calibrated SNR."); ImGui::SameLine();
-            lamp("SYNC", fresh, "Alternating E240/E25F sync words confirmed at 256-bit spacing. No CRC."); ImGui::SameLine();
-            lamp("DATA", fresh && std::chrono::steady_clock::now() - last_frame_received < std::chrono::milliseconds(180), "Flashes when a subframe arrives."); ImGui::SameLine();
-            lamp("SAVE", saved && !write_error && !ps.write_error, "Soft-symbol writes flushed to disk; no PAM write error."); ImGui::SameLine();
-            lamp("I/O", write_error || ps.write_error, "Output write failed. Check the output path and disk space.", true);
-            ImGui::SameLine();
-            lamp("PAM", ps.synced, "Long analog sync repeated at the expected period, with calibration segments confirmed.");
-            ImGui::SameLine();
-            format_lamps(preview.latest, fresh);
-            ImGui::SameLine(); ImGui::Text("%llu fr", (unsigned long long)preview.subframes);
-            ImGui::SameLine(); frame_values(preview.latest, fresh);
-            ImGui::SameLine();
-            status_flags(preview.latest, fresh);
+            latest = preview.latest;
+            subframes = preview.subframes;
+            const auto age = std::chrono::steady_clock::now() - last_frame_received;
+            fresh = preview.synced() && age < std::chrono::seconds(2);
+            receiving = fresh && age < std::chrono::milliseconds(180);
         }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(130 * ui_scale);
-        bool changed = ImGui::InputFloat("Hz##Fine shift", &fine_shift_hz, 25, 250, "%.0f");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Fine frequency shift in Hz (applied immediately)");
-        ImGui::SameLine();
-        if (ImGui::Button("Center peak") && peak.visible) { fine_shift_hz -= peak.hz; changed = true; }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Move the strongest carrier candidate to zero. Coarse IQ shift: %ld Hz", d_frequency_shift);
-        if (changed && fine_tune)
-        {
-            fine_shift_hz = std::isfinite(fine_shift_hz) ? std::max(-12000.0f, std::min(12000.0f, fine_shift_hz)) : 0;
-            fine_tune->set_freq(final_samplerate, fine_shift_hz);
-        }
-        end_status_row();
-        if (ImGui::BeginTabBar("Tuning"))
+        // Keep file progress/abort visible while individual tabs scroll vertically.
+        const float footer = input_data_type == satdump::pipeline::DATA_FILE ? ImGui::GetFrameHeightWithSpacing() : 0;
+        if (write_error || ps.write_error)
+            ImGui::TextWrapped("Output write failed. Check the output path and disk space.");
+        if (ImGui::BeginTabBar("Tuning", ImGuiTabBarFlags_FittingPolicyResizeDown | ImGuiTabBarFlags_TabListPopupButton))
         {
             if (ImGui::BeginTabItem("RF tuning"))
             {
+                ImGui::BeginChild("RF panel", ImVec2(0, -footer));
+                lamp("RF", peak.visible, "Carrier candidate: peak is >10 dB above the local spectral median. This is not a calibrated SNR.");
+                ImGui::SameLine();
+                lamp("SYNC", fresh, "Alternating E240/E25F sync words confirmed at 256-bit spacing. No CRC.");
                 if (rf_spectrum) rf_spectrum->draw(125 * ui_scale, {{"carrier", 0}});
+                else ImGui::TextDisabled("Waiting for RF spectrum...");
+                ImGui::SeparatorText("Frequency correction");
+                ImGui::TextUnformatted("Fine shift (Hz)");
+                ImGui::SetNextItemWidth(std::min(220 * ui_scale, ImGui::GetContentRegionAvail().x));
+                bool changed = ImGui::InputFloat("##Fine shift", &fine_shift_hz, 25, 250, "%.0f");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Fine frequency shift in Hz (applied immediately)");
+                ImGui::BeginDisabled(!peak.visible);
+                if (ImGui::Button("Center peak")) { fine_shift_hz -= peak.hz; changed = true; }
+                ImGui::EndDisabled();
+                if (changed && fine_tune)
+                {
+                    fine_shift_hz = std::isfinite(fine_shift_hz) ? std::max(-12000.0f, std::min(12000.0f, fine_shift_hz)) : 0;
+                    fine_tune->set_freq(final_samplerate, fine_shift_hz);
+                }
+                ImGui::Text("Coarse IQ shift: %ld Hz", d_frequency_shift);
+                if (peak.ready) ImGui::Text("Carrier offset: %.0f Hz", peak.hz);
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("PCM tones"))
             {
+                ImGui::BeginChild("PCM panel", ImVec2(0, -footer));
+                lamp("SYNC", fresh, "Alternating E240/E25F sync words confirmed at 256-bit spacing. No CRC.");
+                ImGui::SameLine();
+                lamp("DATA", receiving, "Flashes when a subframe arrives.");
                 if (pcm_spectrum) pcm_spectrum->draw(125 * ui_scale, {{"0", -float(deviation)}, {"1", float(deviation)}});
+                else ImGui::TextDisabled("Waiting for PCM spectrum...");
+                ImGui::SeparatorText("PCM demodulator");
+                ImGui::Text("Symbol rate: %.3f baud", baud);
+                ImGui::Text("Subcarrier: %.0f Hz", center);
+                ImGui::Text("Deviation: +/- %.0f Hz", deviation);
+                ImGui::Text("Subframes: %llu", (unsigned long long)subframes);
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Telemetry"))
+            {
+                ImGui::BeginChild("Telemetry panel", ImVec2(0, -footer));
+                lamp("SYNC", fresh, "Alternating E240/E25F sync words confirmed at 256-bit spacing. No CRC.");
+                ImGui::SameLine();
+                lamp("DATA", receiving, "Flashes when a subframe arrives.");
+                ImGui::Text("Subframes: %llu", (unsigned long long)subframes);
+                if (!fresh) ImGui::TextWrapped("Waiting for current telemetry...");
+                frame_details(latest, fresh);
+                ImGui::SeparatorText("Output");
+                lamp("SAVE", saved && !write_error && !ps.write_error, "Soft-symbol writes flushed to disk; no PAM write error.");
+                ImGui::SameLine();
+                lamp("I/O", write_error || ps.write_error, "Output write failed. Check the output path and disk space.", true);
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("PAM"))
             {
+                ImGui::BeginChild("PAM panel", ImVec2(0, -footer));
                 auto p = pam ? pam->snapshot(true) : PamTap::Snapshot{};
-                ImGui::Text("PAM %llu frames | rejected %llu | timing gaps %llu", (unsigned long long)p.frames,
-                    (unsigned long long)p.rejected, (unsigned long long)p.discontinuities);
+                lamp("PAM", p.synced, "Long analog sync repeated at the expected period, with calibration segments confirmed.");
+                ImGui::Text("Frames: %llu", (unsigned long long)p.frames);
+                ImGui::Text("Rejected: %llu", (unsigned long long)p.rejected);
+                ImGui::Text("Timing gaps: %llu", (unsigned long long)p.discontinuities);
                 std::vector<double> t, hz, env;
                 for (const auto &v : p.waveform)
                 { t.push_back(v.t); hz.push_back(v.valid ? v.hz : std::numeric_limits<double>::quiet_NaN()); env.push_back(v.envelope); }
@@ -243,7 +278,8 @@ namespace transit
                     ImPlot::EndPlot();
                 }
                 if (p.frames) draw_pam_frame(p.latest);
-                else ImGui::TextDisabled("Waiting for two sync plateaus and calibration segments (about 26 s).");
+                else ImGui::TextWrapped("Waiting for two sync plateaus and calibration segments (about 26 s).");
+                ImGui::EndChild();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

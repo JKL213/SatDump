@@ -41,6 +41,8 @@ namespace elektro
             {
                 // Read buffer
                 read_data((uint8_t *)&cadu, 1024);
+                if (!should_run())
+                    break;
 
                 std::vector<satdump::xrit::XRITFile> files = lrit_demux.work(cadu);
 

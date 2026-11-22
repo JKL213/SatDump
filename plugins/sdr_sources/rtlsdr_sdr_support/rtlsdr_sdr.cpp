@@ -145,6 +145,10 @@ void RtlSdrSource::set_offset_tuning()
 void RtlSdrSource::set_settings(nlohmann::json settings)
 {
     d_settings = settings;
+    if (tuner_type == RTLSDR_TUNER_UNKNOWN && d_settings.contains("tuner_type") && d_settings["tuner_type"].is_number_integer())
+        tuner_type = static_cast<rtlsdr_tuner>(d_settings["tuner_type"].get<int>());
+    if (tuner_type != RTLSDR_TUNER_UNKNOWN)
+        d_settings["tuner_type"] = static_cast<int>(tuner_type);
 
     // Convert legacy AGC setting to new
     if (d_settings.contains("agc"))
@@ -178,6 +182,8 @@ nlohmann::json RtlSdrSource::get_settings()
     d_settings["bias"] = bias_enabled;
     d_settings["offset_tuning"] = offset_tuning;
     d_settings["ppm_correction"] = ppm_widget.get();
+    if (tuner_type != RTLSDR_TUNER_UNKNOWN)
+        d_settings["tuner_type"] = static_cast<int>(tuner_type);
 
     return d_settings;
 }
@@ -185,6 +191,15 @@ nlohmann::json RtlSdrSource::get_settings()
 void RtlSdrSource::open()
 {
     is_open = true;
+
+    int index = rtlsdr_get_index_by_serial(d_sdr_id.c_str());
+    rtlsdr_dev *probe_dev = nullptr;
+    if (index >= 0 && rtlsdr_open(&probe_dev, index) == 0)
+    {
+        tuner_type = rtlsdr_get_tuner_type(probe_dev);
+        d_settings["tuner_type"] = static_cast<int>(tuner_type);
+        rtlsdr_close(probe_dev);
+    }
 
     // Set available samplerate
     std::vector<double> available_samplerates;
@@ -217,6 +232,7 @@ void RtlSdrSource::start()
         throw satdump_exception("Could not open RTL-SDR device!");
 
     tuner_type = rtlsdr_get_tuner_type(rtlsdr_dev_obj);
+    d_settings["tuner_type"] = static_cast<int>(tuner_type);
     offset_tuning_error.clear();
     // A reopened device has its own PPM state, regardless of the last session.
     last_ppm = rtlsdr_get_freq_correction(rtlsdr_dev_obj);
@@ -348,7 +364,7 @@ void RtlSdrSource::drawControlUI()
     if (RImGui::Checkbox("Bias-Tee", &bias_enabled))
         set_bias();
 
-    const bool unsupported_offset = is_started && (tuner_type == RTLSDR_TUNER_R820T || tuner_type == RTLSDR_TUNER_R828D);
+    const bool unsupported_offset = (tuner_type == RTLSDR_TUNER_R820T || tuner_type == RTLSDR_TUNER_R828D);
     if (unsupported_offset)
         RImGui::beginDisabled();
     if (RImGui::Checkbox("Offset Tuning", &offset_tuning))
@@ -359,7 +375,7 @@ void RtlSdrSource::drawControlUI()
         if (offset_tuning_error.empty())
             RImGui::Text("Offset tuning is not supported by this tuner.");
     }
-    else if (is_started && tuner_type == RTLSDR_TUNER_E4000)
+    else if (tuner_type == RTLSDR_TUNER_E4000)
         RImGui::Text("E4000: Offset Tuning reduces the DC spike (preferred; software DC correction is not needed).\nThe receive frequency stays unchanged.");
     if (!offset_tuning_error.empty())
         RImGui::Text("%s", offset_tuning_error.c_str());

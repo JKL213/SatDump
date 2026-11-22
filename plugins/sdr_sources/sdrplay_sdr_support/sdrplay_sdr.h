@@ -52,12 +52,15 @@ protected:
     void set_duo_channel();
 
 public:
-    SDRPlaySource(dsp::SourceDescriptor source) : DSPSampleSource(source), api(sdrplay_api_path), samplerate_widget("Samplerate") {}
+    inline static std::atomic<unsigned int> active_instances{0};
+
+    SDRPlaySource(dsp::SourceDescriptor source) : DSPSampleSource(source), api(sdrplay_api_path), samplerate_widget("Samplerate") { ++active_instances; }
 
     ~SDRPlaySource()
     {
         stop();
         close();
+        --active_instances;
     }
 
     void set_settings(nlohmann::json settings);

@@ -35,16 +35,17 @@ namespace transit
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
     }
 
-    inline void format_lamps(const Frame &f, bool available)
+    inline void format_lamps(const Frame &f, bool available, bool stacked = false)
     {
         lamp("H", available && f.state == 'H', "Both ADC words match the normal format; no CRC."); ImGui::SameLine();
         lamp("R", available && f.state == 'R', "ADC format fits after rotating payload words right once; no CRC."); ImGui::SameLine();
-        lamp("X", available && f.state == 'X', "Suspect format: display raw flags, do not interpret sensor values.", true); ImGui::SameLine();
+        lamp("X", available && f.state == 'X', "Suspect format: display raw flags, do not interpret sensor values.", true);
+        if (!stacked) ImGui::SameLine();
         lamp("SF0", available && f.sf == 0, "Subframe 0: E240"); ImGui::SameLine();
         lamp("SF1", available && f.sf == 1, "Subframe 1: E25F");
     }
 
-    inline void flag_lamps(const char *label, uint16_t value, int bits, bool available, bool raw)
+    inline void flag_lamps(const char *label, uint16_t value, int bits, bool available, bool raw, bool wrap = false)
     {
         ImGui::TextUnformatted(label);
         if (ImGui::IsItemHovered())
@@ -55,7 +56,9 @@ namespace transit
         {
             const float width = std::max(17 * ui_scale, ImGui::CalcTextSize("15").x + 4 * ui_scale);
             const float height = ImGui::GetFrameHeight();
-            ImGui::SameLine(0, 2 * ui_scale);
+            if (!wrap || (b != bits - 1 && ImGui::GetItemRectMax().x + 2 * ui_scale + width <=
+                                          ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x))
+                ImGui::SameLine(0, 2 * ui_scale);
             bool on = available && (value & (1u << b));
             ImVec2 pos = ImGui::GetCursorScreenPos();
             ImGui::PushID(b);
@@ -92,5 +95,35 @@ namespace transit
             ImGui::TextDisabled("C-- G-- A--/--");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("C: frame counter (modulo 65536)\nG: probable sun index, reversed high nibble of w13 decoded as Gray\nA: PAM ADC counts in w7 / w15\nUnavailable for stale or suspect frames.");
+    }
+
+    // The decoder panels use vertical sections; the product inspector retains
+    // its compact row helpers above.
+    inline void frame_details(const Frame &f, bool available)
+    {
+        ImGui::SeparatorText("Encoder format");
+        format_lamps(f, available, true);
+        ImGui::SeparatorText("Latest values");
+        if (ImGui::BeginTable("Frame values", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV))
+        {
+            const char *labels[] = {"Frame counter", "Sun Gray (probable)", "PAM ADC w7", "PAM ADC w15"};
+            const unsigned values[] = {f.words[8], sun_gray(f.words[12]), adc_counts(f.words[6]), adc_counts(f.words[14])};
+            for (int i = 0; i < 4; ++i)
+            {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextWrapped("%s", labels[i]);
+                ImGui::TableNextColumn();
+                if (available && f.state != 'X') ImGui::Text("%u", values[i]);
+                else ImGui::TextDisabled("--");
+            }
+            ImGui::EndTable();
+        }
+        ImGui::SeparatorText("Status bits");
+        const bool raw = f.state == 'X';
+        const auto &words = raw ? f.raw : f.words;
+        flag_lamps("w12", words[11], 16, available, raw, true);
+        flag_lamps("w13", words[12] & 0xfff, 12, available, raw, true);
+        ImGui::TextWrapped("Unverified bit assignments; no CRC. ADC values are raw counts.");
     }
 }

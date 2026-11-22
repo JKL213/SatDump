@@ -148,7 +148,7 @@
                     "constellation": "bpsk",
                     "symbolrate": 294000,
                     "rrc_alpha": 0.5,
-                    "pll_bw": 0.0145,
+                    "pll_bw": 0.005,
                     "max_sps": 3
                 }
             },
@@ -202,8 +202,7 @@
                     "constellation": "oqpsk",
                     "symbolrate": 1.15e6,
                     "rrc_alpha": 0.5,
-                    "pll_bw": 0.001,
-                    "max_sps": 3
+                    "pll_bw": 0.003
                 }
             },
             "cadu": {
@@ -289,7 +288,10 @@
                 "parameters": {
                     "symbolrate": 5e3,
                     "pll_bw": 0.01,
-                    "rrc_alpha": 0.5
+                    "pll_acquire_frequency": true,
+                    "rrc_alpha": 0.5,
+                    "clock_gain_mu": 0.05,
+                    "clock_gain_omega": 0.000625
                 }
             },
             "cadu": {
@@ -315,7 +317,8 @@
         "name": "ARKTIKA-M N°1 GGAK",
         "live": [
             1,
-            2
+            2,
+            3
         ],
         "frequencies": [
             [
@@ -333,8 +336,11 @@
                     "satellite_frequency": 1703e6,
                     "satellite_norad": 47719,
                     "symbolrate": 5e3,
-                    "pll_bw": 0.02,
-                    "rrc_alpha": 0.5
+                    "pll_bw": 0.01,
+                    "pll_acquire_frequency": true,
+                    "rrc_alpha": 0.5,
+                    "clock_gain_mu": 0.05,
+                    "clock_gain_omega": 0.000625
                 }
             },
             "cadu": {
@@ -346,6 +352,13 @@
                     "nrzm": false,
                     "rs_i": 0
                 }
+            },
+            "ggak": {
+                "module": "elektro_arktika_ggak_instruments",
+                "parameters": {
+                    "is_arktika": true,
+                    "satellite_number": 1
+                }
             }
         }
     },
@@ -353,7 +366,8 @@
         "name": "ARKTIKA-M N°2 GGAK",
         "live": [
             1,
-            2
+            2,
+            3
         ],
         "frequencies": [
             [
@@ -371,8 +385,11 @@
                     "satellite_frequency": 1703e6,
                     "satellite_norad": 58584,
                     "symbolrate": 5e3,
-                    "pll_bw": 0.02,
-                    "rrc_alpha": 0.5
+                    "pll_bw": 0.01,
+                    "pll_acquire_frequency": true,
+                    "rrc_alpha": 0.5,
+                    "clock_gain_mu": 0.05,
+                    "clock_gain_omega": 0.000625
                 }
             },
             "cadu": {
@@ -383,6 +400,13 @@
                     "derandomize": false,
                     "nrzm": false,
                     "rs_i": 0
+                }
+            },
+            "ggak": {
+                "module": "elektro_arktika_ggak_instruments",
+                "parameters": {
+                    "is_arktika": true,
+                    "satellite_number": 2
                 }
             }
         }

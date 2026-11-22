@@ -1,6 +1,7 @@
 #include "transit_product_handler.h"
 #include "logger.h"
 #include "module_transit_demod.h"
+#include "module_transit_decoder.h"
 #include "core/config.h"
 #include "imgui/implot/implot_internal.h"
 #include "imgui/imgui_internal.h"
@@ -66,31 +67,63 @@ int main(int argc, char **argv)
         const auto stats = demod.getModuleStats();
         if (stats.contains("snr") || stats.at("synced").get<bool>() || stats.at("subframes").get<int>() != 0)
             throw std::runtime_error("Uninitialized demodulator must not report signal quality or lock");
-        // Both the screenshot-sized panel and a narrow panel must keep one
-        // row of controls, with horizontal scrolling instead of hidden flags.
-        for (float panel_width : {1450.0f, 480.0f})
-            for (int pass = 0; pass < 3; ++pass)
+        transit::TransitDecoderModule decoder("", "", nlohmann::json::object());
+        // Exercise every tab at wide, narrow and scaled sizes. Content must
+        // remain reachable vertically without a horizontal status strip.
+        auto check_tabs = [&](auto &module, const char *window_name, const char *bar_name, int tab_count, bool embedded)
+        {
+            for (float scale : {1.0f, 1.5f})
             {
-                ImGui::NewFrame();
-                ImGui::SetNextWindowSize(ImVec2(panel_width, 300));
-                demod.drawUI(true);
-                ImGui::Render();
-                if (!ImGui::GetDrawData()->Valid) throw std::runtime_error("Live demodulator UI did not render");
-                if (pass != 2) continue; // ImGui updates scroll ranges next frame.
-                bool found = false;
-                for (auto *w : ImGui::GetCurrentContext()->Windows)
-                {
-                    if (!w->Active || !w->ParentWindow || !std::strstr(w->Name, "Telemetry status")) continue;
-                    found = true;
-                    if (w->ContentSize.y > ImGui::GetFrameHeight() + 1 || w->ScrollMax.y > 0)
-                        throw std::runtime_error("Status controls wrapped or were vertically clipped");
-                    if (panel_width < 500 && w->ScrollMax.x <= 0)
-                        throw std::runtime_error("Narrow status row cannot scroll to all flags");
-                    std::cout << "Status row: panel " << panel_width << ", content " << w->ContentSize.x
-                              << " x " << w->ContentSize.y << "\n";
-                }
-                if (!found) throw std::runtime_error("Status row not rendered");
+                ui_scale = scale;
+                io.FontGlobalScale = scale;
+                for (float panel_width : {1450.0f, 480.0f, 320.0f})
+                    for (int tab_index = 0; tab_index < tab_count; ++tab_index)
+                        for (int pass = 0; pass < 4; ++pass)
+                        {
+                            auto *parent = ImGui::FindWindowByName(window_name);
+                            if (parent)
+                                if (auto *tabs = ImGui::TabBarFindByID(parent->GetID(bar_name)))
+                                    if (auto *tab = ImGui::TabBarFindTabByOrder(tabs, tab_index))
+                                        ImGui::TabBarQueueFocus(tabs, tab);
+                            ImGui::NewFrame();
+                            ImGui::SetNextWindowPos(ImVec2(0, 0));
+                            ImGui::SetNextWindowSize(ImVec2(panel_width, 300));
+                            module.drawUI(!embedded);
+                            ImGui::Render();
+                            if (!ImGui::GetDrawData()->Valid) throw std::runtime_error("Decoder UI did not render");
+                            if (pass != 3) continue;
+                            parent = ImGui::FindWindowByName(window_name);
+                            auto *tabs = ImGui::TabBarFindByID(parent->GetID(bar_name));
+                            if (!tabs || tabs->Tabs.Size != tab_count ||
+                                tabs->SelectedTabId != ImGui::TabBarFindTabByOrder(tabs, tab_index)->ID)
+                                throw std::runtime_error("Decoder tab missing or not selected");
+                            if (parent->ScrollMax.x > 0 || parent->ScrollMax.y > 0)
+                                throw std::runtime_error(std::string("Decoder footer or tabs outside parent panel: ") + window_name +
+                                    " tab " + std::to_string(tab_index) + " width " + std::to_string(panel_width) +
+                                    " scale " + std::to_string(scale) + " scroll " + std::to_string(parent->ScrollMax.x) +
+                                    "," + std::to_string(parent->ScrollMax.y));
+                            bool found = false;
+                            for (auto *w : ImGui::GetCurrentContext()->Windows)
+                            {
+                                if (!w->Active || w->ParentWindow != parent) continue;
+                                found = true;
+                                if (w->ScrollMax.x > 0 || w->ContentSize.x > w->InnerRect.GetWidth() + 1)
+                                    throw std::runtime_error(std::string("Horizontal overflow in ") + w->Name);
+                                if (w->ContentSize.y > w->InnerRect.GetHeight() && w->ScrollMax.y <= 0)
+                                    throw std::runtime_error("Tall tab content cannot scroll vertically");
+                            }
+                            if (!found) throw std::runtime_error("Decoder tab content missing");
+                        }
             }
+            ui_scale = 1;
+            io.FontGlobalScale = 1;
+        };
+        check_tabs(demod, "TRANSIT 5E-5 PM/FSK (experimental)", "Tuning", 4, false);
+        check_tabs(demod, "TRANSIT 5E-5 PM/FSK (experimental)", "Tuning", 4, true);
+        demod.setInputType(satdump::pipeline::DATA_FILE);
+        check_tabs(demod, "TRANSIT 5E-5 PM/FSK (experimental)", "Tuning", 4, true);
+        check_tabs(decoder, "TRANSIT 5E-5 Telemetry (experimental)", "Telemetry tabs", 3, false);
+        std::cout << "All decoder tabs fit 1450/480/320 px panels at 1x/1.5x scale\n";
     }
     ImPlot::DestroyContext();
     ImGui::DestroyContext();

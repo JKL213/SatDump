@@ -325,9 +325,17 @@ namespace satdump
             if (current_decimation < 1)
                 current_decimation = 1;
 
-            ImGui::Checkbox(_("DC correction"), &dc_blocking);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", _("Remove the DC spike before the spectrum, recording and live pipelines.\nAlso removes signal components exactly at band centre (e.g. residual carriers); use a frequency offset for such signals.\nChange while the source is stopped."));
+            if (source_ptr && sdr_select_id >= 0 && sdr_select_id < (int)sources.size() &&
+                recorder::is_e4000_source(sources[sdr_select_id], source_ptr->d_settings))
+            {
+                ImGui::Checkbox(_("DC correction"), &dc_blocking);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", _("Remove the DC spike before the spectrum, recording and live pipelines.\nAlso removes signal components exactly at band centre (e.g. residual carriers); use a frequency offset for such signals.\nChange while the source is stopped."));
+            }
+            else
+            {
+                dc_blocking = false;
+            }
 
             bool disableLO = satdump_cfg.main_cfg["user_interface"]["lock_xconverter_input"]["value"];
             if (assume_started && !disableLO)
@@ -354,7 +362,13 @@ namespace satdump
                 set_frequency(frequency_hz);
 
             ImGui::Spacing();
+            const bool is_file_source = sources[sdr_select_id].source_type == "file";
+            const uint64_t previous_file_frequency = is_file_source ? source_ptr->get_frequency() : 0;
             source_ptr->drawControlUI();
+            // File selection can detect a new recording frequency. Propagate it to
+            // the tuner, FFT and VFO markers before start() reapplies the old value.
+            if (is_file_source && source_ptr->get_frequency() != previous_file_frequency)
+                set_frequency(source_ptr->get_frequency());
 
             if (!assume_started)
             {

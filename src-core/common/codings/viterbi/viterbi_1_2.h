@@ -34,15 +34,21 @@ namespace viterbi
         // Main decoder
         CCDecoder cc_decoder;
 
-        // BER test buffers
-        int8_t ber_test_buffer[TEST_BITS_LENGTH];
-        uint8_t ber_soft_buffer[TEST_BITS_LENGTH];
+        // BER test buffers (include K-1 = 6 tail pairs = 12 symbols + shift margin)
+        static constexpr int TAIL_SYMBOLS = 12;
+        int8_t ber_test_buffer[TEST_BITS_LENGTH + TAIL_SYMBOLS + 4];
+        uint8_t ber_soft_buffer[TEST_BITS_LENGTH + TAIL_SYMBOLS + 4];
         uint8_t ber_decoded_buffer[TEST_BITS_LENGTH];
         uint8_t ber_encoded_buffer[TEST_BITS_LENGTH];
 
         // Actual decoding buffers
+        int8_t *rot_buffer;
+        uint8_t *unsigned_buffer;
         uint8_t *soft_buffer;
         uint8_t *output_buffer;
+        uint8_t d_carry_symbol = 128;
+        bool d_has_carry = false;
+        uint8_t d_tail_carry[TAIL_SYMBOLS];
 
         // Calculate BER between 2 buffers
         float get_ber(uint8_t *raw, uint8_t *rencoded, int len);

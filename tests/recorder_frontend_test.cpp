@@ -1,4 +1,7 @@
 // Standalone regression test; see recorder_frontend_test.md for build instructions.
+#include "common/codings/viterbi/cc_encoder.h"
+#include "common/codings/viterbi/utils.h"
+#include "common/codings/viterbi/viterbi_1_2.h"
 #include "common/dsp/path/splitter.h"
 #include "common/dsp/pll/pll_carrier_tracking.h"
 #include "common/dsp/utils/correct_iq.h"
@@ -13,6 +16,7 @@
 #include <limits>
 #include <mutex>
 #include <stdexcept>
+#include <vector>
 
 // Exercise driver success/rejection without opening or changing an SDR.
 static int offset_calls = 0, offset_state = 0, offset_result = 0;
@@ -45,8 +49,9 @@ extern "C" int rtlsdr_open(rtlsdr_dev_t **device, uint32_t)
     device_ppm = offset_state = 0;
     return 0;
 }
+static rtlsdr_tuner fake_tuner_type = RTLSDR_TUNER_E4000;
 extern "C" int rtlsdr_close(rtlsdr_dev_t *) { close_calls++; return 0; }
-extern "C" rtlsdr_tuner rtlsdr_get_tuner_type(rtlsdr_dev_t *) { return RTLSDR_TUNER_E4000; }
+extern "C" rtlsdr_tuner rtlsdr_get_tuner_type(rtlsdr_dev_t *) { return fake_tuner_type; }
 extern "C" int rtlsdr_get_tuner_gains(rtlsdr_dev_t *, int *gains)
 {
     if (gains)
@@ -173,12 +178,17 @@ static void test_offset_tuning()
 
 static void test_e4000_restart()
 {
-    RtlSdrSource source({"rtlsdr", "fake E4000", "fake"});
+    dsp::SourceDescriptor e4000_desc{"rtlsdr", "fake E4000", "fake"};
+    RtlSdrSource source(e4000_desc);
     source.open();
+    check(satdump::recorder::is_e4000_source(e4000_desc, source.d_settings), "E4000 tuner was not detected during open()");
     source.set_frequency(137100000);
     source.set_samplerate(250000);
     source.set_settings({{"offset_tuning", true}, {"ppm_correction", 7}});
+    check(satdump::recorder::is_e4000_source(e4000_desc, source.d_settings), "E4000 tuner_type was lost in set_settings()");
     const int initial_offset_calls = offset_calls;
+    const int base_open_calls = open_calls;
+    const int base_close_calls = close_calls;
     for (int session = 1; session <= 2; session++)
     {
         source.start();
@@ -188,7 +198,7 @@ static void test_e4000_restart()
         source.set_settings(source.get_settings());
         check(offset_calls == initial_offset_calls + session, "unchanged settings caused a tuner retune");
         source.start();
-        check(open_calls == session, "starting a running source reopened the device");
+        check(open_calls == base_open_calls + session, "starting a running source reopened the device");
         if (session == 2)
         {
             auto settings = source.get_settings();
@@ -203,7 +213,7 @@ static void test_e4000_restart()
         }
         source.stop();
         source.stop();
-        check(close_calls == session, "stop did not close exactly once");
+        check(close_calls == base_close_calls + session, "stop did not close exactly once");
     }
     const int initial_open_calls = open_calls;
     for (int error : {-1, -2, -3})
@@ -219,16 +229,24 @@ static void test_e4000_restart()
     bool rejected = false;
     try { source.start(); }
     catch (const std::runtime_error &) { rejected = true; }
-    check(rejected && close_calls == 2, "failed open did not leave the source stopped");
+    check(rejected && close_calls == base_close_calls + 2, "failed open did not leave the source stopped");
     open_result = 0;
     rate_result = -1;
     rejected = false;
     try { source.start(); }
     catch (const std::runtime_error &) { rejected = true; }
-    check(rejected && close_calls == 3, "samplerate failure leaked the device");
+    check(rejected && close_calls == base_close_calls + 3, "samplerate failure leaked the device");
     source.stop();
-    check(close_calls == 3, "samplerate failure closed the device twice");
+    check(close_calls == base_close_calls + 3, "samplerate failure closed the device twice");
     rate_result = 0;
+
+    fake_tuner_type = RTLSDR_TUNER_R820T;
+    dsp::SourceDescriptor r820t_desc{"rtlsdr", "fake R820T", "fake"};
+    RtlSdrSource r820t_source(r820t_desc);
+    r820t_source.open();
+    check(!satdump::recorder::is_e4000_source(r820t_desc, r820t_source.d_settings), "R820T tuner was misidentified as E4000");
+    check(!satdump::recorder::is_e4000_source({"hydrasdr", "HydraSDR One", "0"}, {{"tuner_type", 1}}), "non-rtlsdr source was misidentified as E4000");
+    fake_tuner_type = RTLSDR_TUNER_E4000;
     std::cout << "PASS E4000 restart, PPM/offset persistence, RF centre and startup failure cleanup\n";
 }
 
@@ -407,6 +425,58 @@ static void test_pll_frequency_acquisition()
     std::cout << "PASS PLL coarse frequency acquisition on first buffer after initial silence\n";
 }
 
+static void test_viterbi_1_2_continuity()
+{
+    constexpr int block_symbols = 8192;
+    constexpr int block_bits = block_symbols / 2;
+    constexpr int num_blocks = 4;
+    constexpr int total_bits = block_bits * num_blocks + 16;
+
+    std::vector<uint8_t> tx_bits(total_bits);
+    uint32_t lfsr = 0xACE1u;
+    for (int i = 0; i < total_bits; i++)
+    {
+        tx_bits[i] = lfsr & 1u;
+        lfsr = (lfsr >> 1) ^ (-(lfsr & 1u) & 0xB400u);
+    }
+
+    viterbi::CCEncoder encoder(total_bits, 7, 2, {79, 109});
+    std::vector<uint8_t> encoded(total_bits * 2);
+    encoder.work(tx_bits.data(), encoded.data());
+
+    for (int shift : {0, 1})
+    {
+        std::vector<int8_t> soft_stream(total_bits * 2 + shift, 0);
+        for (int i = 0; i < total_bits * 2; i++)
+            soft_stream[i + shift] = encoded[i] ? 100 : -100;
+
+        // Apply a 270-degree phase shift so the decoder must rotate by PHASE_90 to lock.
+        rotate_soft(soft_stream.data(), block_symbols * num_blocks, PHASE_270, false);
+
+        viterbi::Viterbi1_2 vit(0.15f, 5, block_symbols, {PHASE_0, PHASE_90, PHASE_180, PHASE_270});
+        std::vector<uint8_t> rx_bits;
+        rx_bits.reserve(block_bits * num_blocks);
+
+        for (int b = 0; b < num_blocks; b++)
+        {
+            std::vector<uint8_t> out(block_bits);
+            int n = vit.work(soft_stream.data() + b * block_symbols, block_symbols, out.data());
+            check(vit.getState() == 1 && n == block_bits, "Viterbi1_2 failed to lock on first block");
+            rx_bits.insert(rx_bits.end(), out.begin(), out.begin() + n);
+        }
+
+        // After the 6-bit (TAIL_SYMBOLS / 2) lookahead delay (plus 1 bit when shift == 1
+        // prepends the carry symbol), the decoded bitstream must be 100% contiguous across
+        // all 4096-bit block boundaries with zero bit errors.
+        const int delay = 6 + shift;
+        int errors = 0;
+        for (int i = 0; i < block_bits * num_blocks - delay; i++)
+            errors += (rx_bits[i + delay] != tx_bits[i]);
+        check(errors == 0, "Viterbi1_2 produced bit errors or dropped bits across block boundaries");
+    }
+    std::cout << "PASS Viterbi1_2 continuous decoding across block boundaries for shift=0 and shift=1\n";
+}
+
 int main()
 {
     logger = std::make_shared<slog::Logger>();
@@ -419,6 +489,7 @@ int main()
         test_pipeline_marker();
         test_source_dc_blocking_settings();
         test_pll_frequency_acquisition();
+        test_viterbi_1_2_continuity();
         for (int repetition = 0; repetition < 2; repetition++)
             for (int samplerate : {48000, 250000, 2400000, 3200000})
                 test_dc_correction(samplerate);

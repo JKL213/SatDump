@@ -58,11 +58,31 @@ int main()
     auto *window = ImGui::FindWindowByName("TRANSIT 5E-5 PM/FSK (experimental)");
     auto *tabs = ImGui::TabBarFindByID(window->GetID("Tuning"));
     if (!tabs) throw std::runtime_error("Tuning tabs missing");
-    auto *pam_tab = ImGui::TabBarFindTabByOrder(tabs, 2);
-    if (!pam_tab) throw std::runtime_error("PAM tab missing");
-    ImGui::TabBarQueueFocus(tabs, pam_tab);
-    ImGui::NewFrame(); demod.drawUI(true); ImGui::Render();
-    rendered &= ImGui::GetDrawData()->Valid;
+    for (float scale : {1.0f, 1.5f})
+        for (float panel_width : {1100.0f, 480.0f, 320.0f})
+            for (int index = 0; index < 4; ++index)
+            {
+                ui_scale = scale;
+                io.FontGlobalScale = scale;
+                auto *tab = ImGui::TabBarFindTabByOrder(tabs, index);
+                if (!tab) throw std::runtime_error("Live tab missing");
+                for (int pass = 0; pass < 3; ++pass)
+                {
+                    ImGui::TabBarQueueFocus(tabs, tab);
+                    ImGui::NewFrame();
+                    ImGui::SetNextWindowSize(ImVec2(panel_width, 300));
+                    demod.drawUI(false);
+                    ImGui::Render();
+                    rendered &= ImGui::GetDrawData()->Valid;
+                    if (pass != 2) continue;
+                    for (auto *child : ImGui::GetCurrentContext()->Windows)
+                        if (child->Active && child->ParentWindow == window &&
+                            (child->ScrollMax.x > 0 || child->ContentSize.x > child->InnerRect.GetWidth() + 1))
+                            throw std::runtime_error(std::string("Live tab overflows horizontally: ") + child->Name);
+                }
+            }
+    ui_scale = 1;
+    io.FontGlobalScale = 1;
     ImPlot::DestroyContext(); ImGui::DestroyContext();
     // A flush must expose data while processing is still active, not just at close.
     auto before_stop = demod.getModuleStats();

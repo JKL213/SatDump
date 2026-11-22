@@ -73,10 +73,11 @@ namespace satdump
 
                 if (d_resample_after_pll)
                 {
-                    resampler = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(pm_psk->output_stream, final_samplerate, d_samplerate);
+                    if (resample)
+                        resampler = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(pm_psk->output_stream, final_samplerate, d_samplerate);
 
                     // AGC2
-                    agc2 = std::make_shared<dsp::AGCBlock<complex_t>>(resampler->output_stream, 0.001, 1.0, 1.0, 1000.0);
+                    agc2 = std::make_shared<dsp::AGCBlock<complex_t>>(resample ? resampler->output_stream : pm_psk->output_stream, 0.001, 1.0, 1.0, 1000.0);
                 }
 
                 // RRC
@@ -143,7 +144,7 @@ namespace satdump
                         peak_snr = snr;
 
                     // Update freq
-                    display_freq = dsp::rad_to_hz(pll->getFreq(), final_samplerate);
+                    display_freq = dsp::rad_to_hz(pll->getFreq(), d_resample_after_pll ? d_samplerate : final_samplerate);
 
                     for (int i = 0; i < dat_size; i++)
                     {

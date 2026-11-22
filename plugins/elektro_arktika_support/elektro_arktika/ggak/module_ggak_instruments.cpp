@@ -135,7 +135,7 @@ namespace elektro_arktika
 
                         if (ImPlot::BeginPlot("SKL history", ImVec2(-1, 200 * ui_scale)))
                         {
-                            // The parser assigns one frame timestamp to all 14 samples.
+                            // Each 14-second SKL frame yields 14 1-second samples.
                             ImPlot::SetupAxes("Sample (latest 1024)", "Value", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                             std::string label = "SKL " + std::to_string(selected_channel + 1);
                             ImPlot::PlotLine(label.c_str(), &records[0].dat[selected_channel], records.size(), 1, 0, 0, 0, sizeof(SKLRecord));
@@ -150,6 +150,16 @@ namespace elektro_arktika
             drawProgressBar();
 
             ImGui::End();
+        }
+
+        nlohmann::json GGAKInstrumentsDecoderModule::getModuleStats()
+        {
+            auto v = satdump::pipeline::base::FileStreamToFileStreamModule::getModuleStats();
+            std::lock_guard<std::mutex> lock(records_mtx);
+            v["frames"] = frames;
+            v["crc_errors"] = crc_errors;
+            v["skl_samples"] = skl_records.size();
+            return v;
         }
 
         std::string GGAKInstrumentsDecoderModule::getID() { return "elektro_arktika_ggak_instruments"; }

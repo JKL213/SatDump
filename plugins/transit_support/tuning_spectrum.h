@@ -48,8 +48,9 @@ namespace transit
             std::lock_guard<std::mutex> lock(mutex);
             if (!ready) return {};
             // On RF, search the central +/- 12 kHz for a carrier candidate.
-            int lo = rate > 4000 ? int(values.size() * (0.5f - 12000 / rate)) : 0;
-            int hi = rate > 4000 ? int(values.size() * (0.5f + 12000 / rate)) : int(values.size());
+            int lo = rate > 4000 ? std::max(0, int(values.size() * (0.5f - 12000 / rate))) : 0;
+            int hi = rate > 4000 ? std::min(int(values.size()), int(values.size() * (0.5f + 12000 / rate))) : int(values.size());
+            if (lo >= hi) return {};
             auto it = std::max_element(values.begin() + lo, values.begin() + hi);
             std::vector<float> floor(values.begin() + lo, values.begin() + hi);
             std::nth_element(floor.begin(), floor.begin() + floor.size() / 2, floor.end());

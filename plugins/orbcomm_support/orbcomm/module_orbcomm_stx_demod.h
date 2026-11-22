@@ -8,6 +8,8 @@
 #include "common/dsp/utils/tap.h"
 #include "pipeline/modules/demod/module_demod_base.h"
 #include "stx_deframer.h"
+#include <atomic>
+#include <mutex>
 
 #define ORBCOMM_STX_FRM_SIZE 4800
 
@@ -24,8 +26,9 @@ namespace orbcomm
 
         STXDeframer stx_deframer;
 
-        bool play_audio;
-        bool enable_audio = false;
+        std::mutex audio_mtx;
+        std::atomic<bool> play_audio{false};
+        std::atomic<bool> enable_audio{false};
         std::shared_ptr<audio::AudioSink> audio_sink;
         int16_t *audio_buffer = nullptr;
 

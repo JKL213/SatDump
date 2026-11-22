@@ -92,11 +92,9 @@ namespace elektro_arktika
                 if (!fin.good())
                     return;
 
-                while (!fin.eof())
+                while (fin.read((char *)&frm, sizeof(frm)))
                 {
-                    fin.read((char *)&frm, 224);
-
-                    if (frm.id == 48)
+                    if (checkCRC(&frm) && frm.id == 48)
                     {
                         auto d = parseSKLRecord(&frm);
                         skl_dat.insert(skl_dat.end(), d.begin(), d.end());
@@ -142,11 +140,9 @@ namespace elektro_arktika
                         if (!fin.good())
                             continue;
 
-                        while (!fin.eof())
+                        while (fin.read((char *)&frm, sizeof(frm)))
                         {
-                            fin.read((char *)&frm, 224);
-
-                            if (frm.id == 48)
+                            if (checkCRC(&frm) && frm.id == 48)
                             {
                                 auto d = parseSKLRecord(&frm);
                                 skl_dat.insert(skl_dat.end(), d.begin(), d.end());

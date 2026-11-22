@@ -79,6 +79,8 @@ namespace satdump
                 else if (input_sps < MIN_SPS)
                     final_samplerate = resample ? d_symbolrate * MIN_SPS : d_samplerate; // Get the final samplerate we'll be working with
 
+                resample = final_samplerate != d_samplerate;
+
                 float decimation_factor = d_samplerate / final_samplerate; // Decimation factor to rescale our input buffer
 
                 if (resample)

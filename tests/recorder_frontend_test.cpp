@@ -1,5 +1,6 @@
 // Standalone regression test; see recorder_frontend_test.md for build instructions.
 #include "common/dsp/path/splitter.h"
+#include "common/dsp/pll/pll_carrier_tracking.h"
 #include "common/dsp/utils/correct_iq.h"
 #include "common/dsp/utils/freq_shift.h"
 #include "dsp/utils/correct_iq.h"
@@ -378,6 +379,34 @@ static void test_source_dc_blocking_settings()
     std::cout << "PASS per-source dc_blocking persistence and legacy global key tolerance\n";
 }
 
+static void test_pll_frequency_acquisition()
+{
+    auto input = std::make_shared<dsp::stream<complex_t>>();
+    const float target_omega = 0.25f;
+    dsp::PLLCarrierTrackingBlock pll(input, 0.002f, 0.5f, -0.5f);
+    pll.acquireFrequency(512);
+    pll.start();
+
+    // First 512 samples are zero (silence), next 3584 samples carry a tone at target_omega.
+    // Acquisition must skip the silence, seed d_freq within the first buffer, and lock before buffer end.
+    for (int i = 0; i < 4096; i++)
+    {
+        if (i < 512)
+            input->writeBuf[i] = complex_t(0.0f, 0.0f);
+        else
+        {
+            float phase = target_omega * (i - 512);
+            input->writeBuf[i] = complex_t(std::cos(phase), std::sin(phase));
+        }
+    }
+    input->swap(4096);
+    check(pll.output_stream->read() == 4096, "PLL changed sample count");
+    pll.output_stream->flush();
+    pll.stop();
+    check(std::abs(pll.getFreq() - target_omega) < 0.005f, "PLL did not acquire carrier frequency on the first buffer");
+    std::cout << "PASS PLL coarse frequency acquisition on first buffer after initial silence\n";
+}
+
 int main()
 {
     logger = std::make_shared<slog::Logger>();
@@ -389,6 +418,7 @@ int main()
         test_real_dc_correction();
         test_pipeline_marker();
         test_source_dc_blocking_settings();
+        test_pll_frequency_acquisition();
         for (int repetition = 0; repetition < 2; repetition++)
             for (int samplerate : {48000, 250000, 2400000, 3200000})
                 test_dc_correction(samplerate);

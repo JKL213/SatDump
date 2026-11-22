@@ -16,6 +16,8 @@ namespace dsp
         float d_phase, d_freq;
         int d_acquire_samples = 0, d_acquire_count = 0;
         double d_acquire_re = 0, d_acquire_im = 0, d_acquire_power = 0;
+        complex_t d_acquire_last = 0;
+        bool d_acquire_has_last = false;
 
         void work();
 
@@ -24,6 +26,12 @@ namespace dsp
 
         float getFreq() { return d_freq; }
         // Enable coarse acquisition before start(); disabled by default.
-        void acquireFrequency(int samples) { d_acquire_samples = samples > 1 ? samples : 2; }
+        void acquireFrequency(int samples)
+        {
+            d_acquire_samples = samples > 1 ? samples : 2;
+            d_acquire_count = 0;
+            d_acquire_re = d_acquire_im = d_acquire_power = 0;
+            d_acquire_has_last = false;
+        }
     };
 }

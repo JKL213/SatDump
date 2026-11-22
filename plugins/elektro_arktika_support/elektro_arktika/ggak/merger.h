@@ -117,7 +117,9 @@ namespace elektro_arktika
                                     ofrms.push_back(recovery_queue[i]);
                                     last_valid_frame_ctr = recovery_queue[i].master_counter;
 
-                                    std::remove_if(recovery_queue.begin(), recovery_queue.end(), [this](auto &v) { return v.master_counter == last_valid_frame_ctr; });
+                                    recovery_queue.erase(
+                                        std::remove_if(recovery_queue.begin(), recovery_queue.end(), [this](auto &v) { return v.master_counter == last_valid_frame_ctr; }),
+                                        recovery_queue.end());
 
                                     goto retry;
                                 }

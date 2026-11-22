@@ -24,6 +24,7 @@ namespace elektro_arktika
             GGAKInstrumentsDecoderModule(std::string input_file, std::string output_file_hint, nlohmann::json parameters);
             void process();
             void drawUI(bool window);
+            nlohmann::json getModuleStats();
 
         public:
             static std::string getID();

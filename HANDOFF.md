@@ -3,6 +3,67 @@
 Neuester Eintrag oben. Format je Eintrag: Datum, Werkzeug, Getan, Geänderte Dateien,
 Verifiziert, Offen, Annahmen.
 
+## 2026-11-22 — Google Antigravity
+
+**Getan**
+- **Orbcomm STX (`module_orbcomm_stx_auto_demod.{h,cpp}`, `module_orbcomm_stx_demod.{h,cpp}`)**:
+  - Out-of-Bounds-Read bei `0x65`-Sync-Paketen am Frame-Ende (`i == 49`, 24-Byte-FCS auf verbleibenden 12 Bytes) durch `i + 1 < 50` verhindert.
+  - Data Race / Use-After-Free und unbegrenztes Anwachsen von `freqs_to_push` behoben (`freqs_to_push` wird unter `freqs_to_push_mtx` per `swap` entnommen und anschließend abgearbeitet).
+  - Nyquist-/Bandbreitenprüfung (`std::isfinite(frequency) && std::abs(d_center_frequency - frequency) <= d_samplerate / 2.0`) in `add_stx_link` ergänzt.
+  - Audio-Initialisierungs- und Shutdown-Races in `OrbcommSTXAutoDemodModule` und `OrbcommSTXDemodModule` durch `audio_mtx` sowie `std::atomic` für `enable_audio`, `play_audio` und `audio_freq` behoben (`enable_audio = true` erst nach Initialisierung von `audio_buffer` und `audio_sink->start()`, Pufferlängenbegrenzung auf `dsp::STREAM_BUFFER_SIZE`, synchronisiertes Stoppen in `stop()` und `process()`, Lock auf `stx_link_lst_mtx` und `freqs_to_push_mtx` in `OrbcommSTXAutoDemodModule::stop()`).
+- **`PMDemodModule` (`src-core/pipeline/modules/demod/module_pm_demod.cpp`)**:
+  - Bei `d_resample_after_pll == true` wird `resampler` nur angelegt, wenn `resample == true` ist (`agc2` liest sonst direkt `pm_psk->output_stream`), wodurch der Pipeline-Deadlock bei `resample == false` entfällt.
+  - `display_freq` wird mit der tatsächlichen PLL-Abtastrate (`d_resample_after_pll ? d_samplerate : final_samplerate`) berechnet.
+- **`PLLCarrierTrackingBlock` (`src-core/common/dsp/pll/pll_carrier_tracking.{h,cpp}`)**:
+  - Grobe Frequenzakquisition (Lag-1-Autokorrelation) läuft nun **vor** der PLL-Schleife puffergrenzenübergreifend (`d_acquire_last`, `d_acquire_has_last`) und setzt `d_freq` unmittelbar beim Erreichen von `d_acquire_samples`, sodass bereits der erste Puffer mit der geschätzten Trägerfrequenz demoduliert wird.
+- **Elektro/Arktika GGAK (`plugins/elektro_arktika_support/elektro_arktika/ggak/*`)**:
+  - `GGAKInstrumentsDecoderModule::getModuleStats()` implementiert (`frames`, `crc_errors`, `skl_samples`).
+  - `GGAKMerger::process()` (`merger.h`): `recovery_queue.erase(std::remove_if(...), recovery_queue.end())` ergänzt, damit der Merger aus `WAIT` wieder nach `SYNCED` wechselt.
+  - `GGAKIngestor` (`ingestor.h`): `while (fin.read((char *)&frm, sizeof(frm)))` und `checkCRC(&frm)` vor `parseSKLRecord(&frm)` eingesetzt.
+  - `parseSKLRecord` (`skl.cpp`): 1-Sekunden-Zeitstempel `getTimestamp(frm) + i` für die 14 Samples pro Frame vergeben.
+- **TRANSIT 5E-5 & `BaseDemodModule` (`plugins/transit_support/*`, `src-core/pipeline/modules/demod/module_demod_base.cpp`)**:
+  - In `BaseDemodModule::initb()` wird nach Bestimmung von `final_samplerate` `resample = final_samplerate != d_samplerate;` gesetzt (verhindert unnötigen 1:1-Resampler bei 64 kS/s und aktiviert Resampling bei abweichender `custom_samplerate`).
+  - In `TransitDemodModule::process()` werden im `DATA_FILE`-Modus bei `file_source->eof()` noch in der DSP-Kette befindliche Puffer vollständig ausgelesen, bevor `preview.finish()` und `stop()` laufen; `TransitDemodModule::stop()` prüft Block-Pointer auf Null.
+  - In `TuningSpectrum::peak()` (`tuning_spectrum.h`) werden `lo` und `hi` auf `[0, int(values.size())]` begrenzt.
+- **`CCSDSSimplePSKDecoderModule` (`src-core/pipeline/modules/ccsds/module_ccsds_simple_psk_decoder.cpp`)**:
+  - Modulo-Wraparound `% int(200 * ui_scale)` auf vorzeichenbehafteten Konstellationskoordinaten in `drawUI()` entfernt; `rs_avg` in `getModuleStats()` mittelt über `d_rs_interleaving_depth`.
+- **Recorder-VFO-Verwaltung (`src-interface/recorder/recorder_vfo.cpp`)**:
+  - `update_vfo_markers()` aktualisiert `last_preview_pipeline_id` bei jedem Rebuild (verhindert unnötige Rebuilds pro Frame bei laufender Pipeline und eingeklapptem Processing-Panel).
+  - `add_vfo_reco()` normiert `decimation <= 1` auf `1` (verhindert Unterlauf durch Default `decimation = -1` bei `get_samplerate() / decimation`); Fehler-Cleanup in `add_vfo_live()` / `add_vfo_reco()` und Stop-Reihenfolge (`decim_ptr` vor `file_sink`) in `del_vfo()` bereinigt.
+
+**Geänderte Dateien**
+- `plugins/orbcomm_support/orbcomm/module_orbcomm_stx_auto_demod.h`
+- `plugins/orbcomm_support/orbcomm/module_orbcomm_stx_auto_demod.cpp`
+- `plugins/orbcomm_support/orbcomm/module_orbcomm_stx_demod.h`
+- `plugins/orbcomm_support/orbcomm/module_orbcomm_stx_demod.cpp`
+- `src-core/pipeline/modules/demod/module_pm_demod.cpp`
+- `src-core/pipeline/modules/demod/module_demod_base.cpp`
+- `src-core/common/dsp/pll/pll_carrier_tracking.h`
+- `src-core/common/dsp/pll/pll_carrier_tracking.cpp`
+- `src-core/pipeline/modules/ccsds/module_ccsds_simple_psk_decoder.cpp`
+- `plugins/elektro_arktika_support/elektro_arktika/ggak/module_ggak_instruments.h`
+- `plugins/elektro_arktika_support/elektro_arktika/ggak/module_ggak_instruments.cpp`
+- `plugins/elektro_arktika_support/elektro_arktika/ggak/merger.h`
+- `plugins/elektro_arktika_support/elektro_arktika/ggak/ingestor.h`
+- `plugins/elektro_arktika_support/elektro_arktika/ggak/skl.cpp`
+- `plugins/transit_support/module_transit_demod.cpp`
+- `plugins/transit_support/tuning_spectrum.h`
+- `plugins/transit_support/tests/live_test.cpp`
+- `src-interface/recorder/recorder_vfo.cpp`
+- `tests/recorder_frontend_test.cpp`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- Ziele `satdump_core`, `satdump_interface`, `orbcomm_support`, `elektro_arktika_support`, `transit_support`, `rtlsdr_sdr_support`, `satdump`, `satdump-ui`, `recorder_frontend_test`, `transit_protocol_test`, `transit_pam_test`, `transit_live_test`, `transit_product_test` gebaut.
+- `ctest --test-dir build --output-on-failure -V` besteht komplett (inkl. neuem Regressionstest `test_pll_frequency_acquisition`).
+- `./build/plugins/transit_protocol_test`, `./build/plugins/transit_pam_test` und `./build/plugins/transit_live_test` (inkl. neuem `DATA_FILE`-EOF-Drain-Regressionstest) bestehen komplett.
+
+**Offen**
+1. Falls auch die reinen Upstream-Fehler aus Teil B der Analyse (z. B. HydraSDR/Airspy `stopWriter()`, `BasebandType`-Komparator, `kepler_utils.cpp`, `orbit.c`, `flowgraph.cpp`) behoben werden sollen, können diese im nächsten Schritt umgesetzt werden.
+
+**Annahmen**
+- Keine.
+
 ## 2026-11-20 (2) — Google Antigravity
 
 **Getan**

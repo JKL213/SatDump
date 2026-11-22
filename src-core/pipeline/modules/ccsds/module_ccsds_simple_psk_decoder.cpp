@@ -307,7 +307,12 @@ namespace satdump
                 nlohmann::json v;
                 v["deframer_lock"] = deframer->getState() == deframer->STATE_SYNCED || deframer_qpsk->getState() == deframer_qpsk->STATE_SYNCED;
                 if (d_rs_interleaving_depth != 0)
-                    v["rs_avg"] = (errors[0] + errors[1] + errors[2] + errors[3]) / 4;
+                {
+                    double rs_avg = 0;
+                    for (int i = 0; i < d_rs_interleaving_depth; i++)
+                        rs_avg += errors[i];
+                    v["rs_avg"] = rs_avg / d_rs_interleaving_depth;
+                }
                 std::shared_ptr<deframing::BPSK_CCSDS_Deframer> def = deframer;
                 if (d_constellation == dsp::QPSK && !d_diff_decode)       // Is we are working with non-NRZM QPSK, check what deframer to use
                     if (deframer_qpsk->getState() > deframer->getState()) // ...and use the one that is locked
@@ -339,8 +344,8 @@ namespace satdump
                     {
                         for (int i = 0; i < std::min(d_buffer_size, 2048); i++)
                         {
-                            draw_list->AddCircleFilled(ImVec2(ImGui::GetCursorScreenPos().x + (int)(100 * ui_scale + (((int8_t *)soft_buffer)[i] / 127.0) * 130 * ui_scale) % int(200 * ui_scale),
-                                                              ImGui::GetCursorScreenPos().y + (int)(100 * ui_scale + rng.gasdev() * 14 * ui_scale) % int(200 * ui_scale)),
+                            draw_list->AddCircleFilled(ImVec2(ImGui::GetCursorScreenPos().x + (100 * ui_scale + (((int8_t *)soft_buffer)[i] / 127.0) * 130 * ui_scale),
+                                                              ImGui::GetCursorScreenPos().y + (100 * ui_scale + rng.gasdev() * 14 * ui_scale)),
                                                        2 * ui_scale, style::theme.constellation);
                         }
                     }
@@ -349,8 +354,8 @@ namespace satdump
                         for (int i = 0; i < std::min(d_buffer_size / 2, 2048); i++)
                         {
                             draw_list->AddCircleFilled(
-                                ImVec2(ImGui::GetCursorScreenPos().x + (int)(100 * ui_scale + (((int8_t *)soft_buffer)[i * 2 + 0] / 127.0) * 100 * ui_scale) % int(200 * ui_scale),
-                                       ImGui::GetCursorScreenPos().y + (int)(100 * ui_scale + (((int8_t *)soft_buffer)[i * 2 + 1] / 127.0) * 100 * ui_scale) % int(200 * ui_scale)),
+                                ImVec2(ImGui::GetCursorScreenPos().x + (100 * ui_scale + (((int8_t *)soft_buffer)[i * 2 + 0] / 127.0) * 100 * ui_scale),
+                                       ImGui::GetCursorScreenPos().y + (100 * ui_scale + (((int8_t *)soft_buffer)[i * 2 + 1] / 127.0) * 100 * ui_scale)),
                                 2 * ui_scale, style::theme.constellation);
                         }
                     }

@@ -16,7 +16,7 @@ namespace elektro_arktika
 
                 SKLRecord rec;
 
-                rec.time = getTimestamp(frm);
+                rec.time = getTimestamp(frm) + i;
 
                 for (int c = 0; c < 11; c++)
                 {

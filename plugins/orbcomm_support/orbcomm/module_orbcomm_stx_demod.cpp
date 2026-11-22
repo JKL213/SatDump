@@ -36,11 +36,15 @@ namespace orbcomm
         tap = std::make_shared<dsp::TapBlock<float>>(iqc->output_stream,
                                                      [this](float *buf, int n)
                                                      {
-                                                         if (!(enable_audio && play_audio))
+                                                         if (!(enable_audio.load() && play_audio.load()))
                                                              return;
-                                                         for (int i = 0; i < n; i++)
+                                                         std::lock_guard<std::mutex> lock(audio_mtx);
+                                                         if (!(enable_audio.load() && play_audio.load()) || !audio_sink || !audio_buffer)
+                                                             return;
+                                                         int count = std::min(n, dsp::STREAM_BUFFER_SIZE);
+                                                         for (int i = 0; i < count; i++)
                                                              audio_buffer[i] = std::max(-1.0f, std::min(1.0f, buf[i])) * 32767;
-                                                         audio_sink->push_samples(audio_buffer, n);
+                                                         audio_sink->push_samples(audio_buffer, count);
                                                      });
 
         // Filter
@@ -81,11 +85,12 @@ namespace orbcomm
 
         if (input_data_type != satdump::pipeline::DATA_FILE && audio::has_sink())
         {
-            enable_audio = true;
+            std::lock_guard<std::mutex> lock(audio_mtx);
             audio_buffer = new int16_t[dsp::STREAM_BUFFER_SIZE];
             audio_sink = audio::get_default_sink();
             audio_sink->set_samplerate(final_samplerate);
             audio_sink->start();
+            enable_audio = true;
         }
 
         // Start
@@ -152,10 +157,10 @@ namespace orbcomm
         delete[] bits_buf;
         delete[] frames;
 
-        if (enable_audio)
         {
-            enable_audio = false;
-            audio_sink->stop();
+            std::lock_guard<std::mutex> lock(audio_mtx);
+            if (enable_audio.exchange(false) && audio_sink)
+                audio_sink->stop();
         }
 
         logger->info("Demodulation finished");
@@ -166,6 +171,12 @@ namespace orbcomm
 
     void OrbcommSTXDemodModule::stop()
     {
+        {
+            std::lock_guard<std::mutex> lock(audio_mtx);
+            if (enable_audio.exchange(false) && audio_sink)
+                audio_sink->stop();
+        }
+
         // Stop
         BaseDemodModule::stop();
         qua->stop();

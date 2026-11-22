@@ -72,10 +72,10 @@ namespace transit
         fine_tune->start(); rf_spectrum->start();
         rf_demod->start(); pam->start(); mixer->start(); pcm_resampler->start(); pcm_spectrum->start(); fsk_demod->start(); filter->start(); clock->start();
         std::vector<int8_t> soft;
-        while (demod_should_run())
+        auto consume_clock = [&]() -> bool
         {
             int n = clock->output_stream->read();
-            if (n <= 0) { clock->output_stream->flush(); continue; }
+            if (n <= 0) { clock->output_stream->flush(); return true; }
             soft.resize(n);
             for (int i = 0; i < n; ++i) soft[i] = clamp(clock->output_stream->readBuf[i] * 90);
             {
@@ -90,10 +90,51 @@ namespace transit
                 data_out.write(reinterpret_cast<char *>(soft.data()), n);
                 data_out.flush(); // At 391 bytes/s, buffering otherwise hides data for ~20 seconds.
                 saved = bool(data_out);
-                if (!data_out) { write_error = true; logger->error("TRANSIT: writing soft symbols failed"); break; }
+                if (!data_out) { write_error = true; logger->error("TRANSIT: writing soft symbols failed"); return false; }
             }
             else output_fifo->write(reinterpret_cast<uint8_t *>(soft.data()), n);
             if (input_data_type == satdump::pipeline::DATA_FILE) progress = file_source->getPosition();
+            return true;
+        };
+        while (demod_should_run())
+            if (!consume_clock())
+                break;
+        if (input_data_type == satdump::pipeline::DATA_FILE && !demod_should_stop && !write_error)
+        {
+            auto any_ready = [&]()
+            {
+                return file_source->output_stream->getReady() ||
+                       (dc_blocker && dc_blocker->output_stream->getReady()) ||
+                       (freq_shift && freq_shift->output_stream->getReady()) ||
+                       (doppler_shift && doppler_shift->output_stream->getReady()) ||
+                       (fft_splitter && fft_splitter->output_stream->getReady()) ||
+                       (resampler && resampler->output_stream->getReady()) ||
+                       agc->output_stream->getReady() ||
+                       fine_tune->output_stream->getReady() ||
+                       rf_spectrum->output()->getReady() ||
+                       rf_demod->output_stream->getReady() ||
+                       pam->output_stream->getReady() ||
+                       mixer->output_stream->getReady() ||
+                       pcm_resampler->output_stream->getReady() ||
+                       pcm_spectrum->output()->getReady() ||
+                       fsk_demod->output_stream->getReady() ||
+                       filter->output_stream->getReady() ||
+                       clock->output_stream->getReady();
+            };
+            for (int idle = 0; idle < 20 && !demod_should_stop && !write_error;)
+            {
+                if (clock->output_stream->getReady())
+                {
+                    if (!consume_clock())
+                        break;
+                    idle = 0;
+                }
+                else
+                {
+                    idle = any_ready() ? 0 : idle + 1;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            }
         }
         {
             std::lock_guard<std::mutex> lock(preview_mutex);
@@ -215,9 +256,19 @@ namespace transit
     void TransitDemodModule::stop()
     {
         BaseDemodModule::stop();
-        fine_tune->stop(); rf_spectrum->stop();
-        rf_demod->stop(); pam->stop(); mixer->stop(); pcm_resampler->stop(); pcm_spectrum->stop(); fsk_demod->stop(); filter->stop(); clock->stop();
-        clock->output_stream->stopReader();
-
+        if (fine_tune) fine_tune->stop();
+        if (rf_spectrum) rf_spectrum->stop();
+        if (rf_demod) rf_demod->stop();
+        if (pam) pam->stop();
+        if (mixer) mixer->stop();
+        if (pcm_resampler) pcm_resampler->stop();
+        if (pcm_spectrum) pcm_spectrum->stop();
+        if (fsk_demod) fsk_demod->stop();
+        if (filter) filter->stop();
+        if (clock)
+        {
+            clock->stop();
+            clock->output_stream->stopReader();
+        }
     }
 }

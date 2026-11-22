@@ -67,7 +67,7 @@ namespace orbcomm
                 {
                     if (frm[i * 12] == 0x65)
                     {
-                        if (fcs(&frm[i * 12], 24) == 0)
+                        if (i + 1 < 50 && fcs(&frm[i * 12], 24) == 0)
                         {
                             double freq = calcFreq(frm[i * 12 + 5]);
                             logger->trace("Synchronization, Freq %f Mhz", freq);
@@ -87,11 +87,11 @@ namespace orbcomm
                             repackBytesTo12bits(&frm[i * 12 + 2], 8, values);
 
                             std::string frequencies = "";
-                            for (int i = 0; i < 5; i++)
+                            for (int j = 0; j < 5; j++)
                             {
-                                if (values[i] != 0)
+                                if (values[j] != 0)
                                 {
-                                    double freq = calcFreq(values[i], false);
+                                    double freq = calcFreq(values[j], false);
                                     frequencies += std::to_string(freq) + " Mhz, ";
 
                                     freqs_to_push.push_back(freq * 1e6);
@@ -144,11 +144,12 @@ namespace orbcomm
 
         if (input_data_type != satdump::pipeline::DATA_FILE && audio::has_sink())
         {
-            enable_audio = true;
+            std::lock_guard<std::mutex> lock(audio_mtx);
             audio_buffer = new int16_t[dsp::STREAM_BUFFER_SIZE];
             audio_sink = audio::get_default_sink();
             audio_sink->set_samplerate(48e3);
             audio_sink->start();
+            enable_audio = true;
         }
 
         // Start
@@ -157,16 +158,13 @@ namespace orbcomm
 
         while (demod_should_run())
         {
-            freqs_to_push_mtx.lock();
-            if (freqs_to_push.size() > 0)
+            std::vector<double> pending_freqs;
             {
-                freqs_to_push_mtx.unlock();
-                add_stx_link(freqs_to_push[0]);
-                freqs_to_push_mtx.lock();
-
-                freqs_to_push.erase(freqs_to_push.begin());
+                std::lock_guard<std::mutex> lock(freqs_to_push_mtx);
+                pending_freqs.swap(freqs_to_push);
             }
-            freqs_to_push_mtx.unlock();
+            for (double freq : pending_freqs)
+                add_stx_link(freq);
 
             stx_link_lst_mtx.lock();
             for (auto &freq : stx_link_lst)
@@ -193,10 +191,10 @@ namespace orbcomm
             }
         }
 
-        if (enable_audio)
         {
-            enable_audio = false;
-            audio_sink->stop();
+            std::lock_guard<std::mutex> lock(audio_mtx);
+            if (enable_audio.exchange(false) && audio_sink)
+                audio_sink->stop();
         }
 
         logger->info("Demodulation finished");
@@ -223,17 +221,29 @@ namespace orbcomm
 
     void OrbcommSTXAutoDemodModule::stop()
     {
+        {
+            std::lock_guard<std::mutex> lock(audio_mtx);
+            if (enable_audio.exchange(false) && audio_sink)
+                audio_sink->stop();
+        }
+
         // Stop
         BaseDemodModule::stop();
         splitter->stop();
         logger->trace("Splitter stopped");
 
-        for (auto &freq : stx_link_lst)
-            freq.second.demod->stop();
+        {
+            std::lock_guard<std::mutex> lock(stx_link_lst_mtx);
+            for (auto &freq : stx_link_lst)
+                freq.second.demod->stop();
+        }
         logger->trace("Demodulators stopped");
 
         if (output_data_type == satdump::pipeline::DATA_FILE)
+        {
+            std::lock_guard<std::mutex> lock(freqs_to_push_mtx);
             data_out.close();
+        }
     }
 
     void OrbcommSTXAutoDemodModule::drawUI(bool window)

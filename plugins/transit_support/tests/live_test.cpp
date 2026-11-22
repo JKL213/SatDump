@@ -106,5 +106,39 @@ int main()
     if (!recovered->contents.contains("pam_import_warning") || recovered->contents.at("subframes").size() != count ||
         recovered->contents.at("pam_frames").size() != 3)
         throw std::runtime_error("Malformed optional PAM companion damaged the PCM product");
+
+    // Verify DATA_FILE mode drains all in-flight DSP buffers at EOF without losing tail frames.
+    const auto iq_path = (dir / "input.cf32").string();
+    {
+        std::ofstream iq_out(iq_path, std::ios::binary);
+        double f_phase = 0, f_pam_phase = 0;
+        std::vector<complex_t> iq_buf(4096);
+        for (int pos = 0; pos < samples;)
+        {
+            int n = std::min(4096, samples - pos);
+            for (int i = 0; i < n; ++i)
+            {
+                double t = (pos + i) / 64000.0;
+                bool b = bits.at(size_t(t * 390.594));
+                f_phase = std::remainder(f_phase + 2 * M_PI * (b ? 11250 : 9950) / 64000, 2 * M_PI);
+                f_pam_phase = std::remainder(f_pam_phase + 2 * M_PI * (5450 + level(t)) / 64000, 2 * M_PI);
+                double angle = 0.4 * std::sin(f_phase) + 0.25 * std::sin(f_pam_phase);
+                iq_buf[i] = complex_t(std::cos(angle), std::sin(angle));
+            }
+            iq_out.write(reinterpret_cast<const char *>(iq_buf.data()), n * sizeof(complex_t));
+            pos += n;
+        }
+    }
+    const auto file_prefix = (dir / "file_signal").string();
+    transit::TransitDemodModule file_demod(iq_path, file_prefix, {{"samplerate", 64000}, {"baseband_format", "cf32"}});
+    file_demod.setInputType(satdump::pipeline::DATA_FILE);
+    file_demod.setOutputType(satdump::pipeline::DATA_FILE);
+    file_demod.init();
+    file_demod.process();
+    transit::TransitDecoderModule file_decoder(file_prefix + ".soft", (dir / "file_decoded").string(), nlohmann::json::object());
+    file_decoder.process();
+    auto file_product = satdump::products::loadProduct(file_decoder.getOutput());
+    if (file_product->contents.at("subframes").size() != count || file_product->contents.at("pam_frames").size() != 3)
+        throw std::runtime_error("DATA_FILE demodulation dropped in-flight tail frames at EOF");
     std::filesystem::remove_all(dir);
 }

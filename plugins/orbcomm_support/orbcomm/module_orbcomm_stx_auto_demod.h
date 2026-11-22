@@ -4,6 +4,9 @@
 #include "common/dsp/path/splitter.h"
 #include "pipeline/modules/demod/module_demod_base.h"
 #include "stx_demod_hier.h"
+#include <atomic>
+#include <cmath>
+#include <mutex>
 
 namespace orbcomm
 {
@@ -23,14 +26,19 @@ namespace orbcomm
         std::mutex stx_link_lst_mtx;
         std::map<double, STXLink> stx_link_lst;
 
-        bool play_audio;
-        bool enable_audio = false;
-        double audio_freq = 0;
+        std::mutex audio_mtx;
+        std::atomic<bool> play_audio{false};
+        std::atomic<bool> enable_audio{false};
+        std::atomic<double> audio_freq{0};
         std::shared_ptr<audio::AudioSink> audio_sink;
         int16_t *audio_buffer = nullptr;
 
         void add_stx_link(double frequency)
         {
+            double offset = d_center_frequency - frequency;
+            if (!std::isfinite(frequency) || std::abs(offset) > d_samplerate / 2.0)
+                return;
+
             stx_link_lst_mtx.lock();
             if (stx_link_lst.count(frequency) > 0)
             {
@@ -39,18 +47,21 @@ namespace orbcomm
             else
             {
                 std::string id = std::to_string(frequency);
-                double offset = d_center_frequency - frequency;
                 splitter->add_vfo(id, d_samplerate, offset);
                 STXLink link;
                 link.id = id;
                 link.demod = std::make_shared<STXDemod>(splitter->get_vfo_output(id), frm_callback, d_samplerate, true,
                                                         [this, frequency](float *buf, int n)
                                                         {
-                                                            if (!(enable_audio && play_audio && audio_freq == frequency))
+                                                            if (!(enable_audio.load() && play_audio.load() && audio_freq.load() == frequency))
                                                                 return;
-                                                            for (int i = 0; i < n; i++)
+                                                            std::lock_guard<std::mutex> lock(audio_mtx);
+                                                            if (!(enable_audio.load() && play_audio.load() && audio_freq.load() == frequency) || !audio_sink || !audio_buffer)
+                                                                return;
+                                                            int count = std::min(n, dsp::STREAM_BUFFER_SIZE);
+                                                            for (int i = 0; i < count; i++)
                                                                 audio_buffer[i] = std::max(-1.0f, std::min(1.0f, buf[i])) * 32767;
-                                                            audio_sink->push_samples(audio_buffer, n);
+                                                            audio_sink->push_samples(audio_buffer, count);
                                                         });
                 link.last_ping = time(0);
                 link.demod->start();
@@ -70,6 +81,8 @@ namespace orbcomm
             stx_link_lst_mtx.lock();
             if (stx_link_lst.count(frequency) > 0)
             {
+                if (audio_freq.load() == frequency)
+                    audio_freq.store(0);
                 splitter->set_vfo_enabled(stx_link_lst[frequency].id, false);
                 stx_link_lst[frequency].demod->stop();
                 splitter->del_vfo(stx_link_lst[frequency].id);

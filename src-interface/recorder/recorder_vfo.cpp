@@ -28,6 +28,7 @@ namespace satdump
 
         vfo_markers_dirty.store(false);
         last_vfo_marker_freq_hz = frequency_hz;
+        last_preview_pipeline_id = pipeline_selector.selected_pipeline.id;
         fft_plot->vfo_freqs.clear();
         auto add_pipeline = [this](const std::string &name, double input_frequency, double shift)
         {
@@ -37,7 +38,6 @@ namespace satdump
             add_pipeline(std::string(_("Pipeline: ")) + processing_vfo.first, frequency_hz, processing_vfo.second);
         else if (!pipeline_selector.selected_pipeline.id.empty())
         {
-            last_preview_pipeline_id = pipeline_selector.selected_pipeline.id;
             last_preview_params = pipeline_selector.getParameters();
             last_preview_shift = recorder::pipeline_frequency_shift(pipeline_selector.selected_pipeline, last_preview_params);
             add_pipeline(std::string(_("Preview: ")) + pipeline_selector.selected_pipeline.name, frequency_hz, last_preview_shift);
@@ -79,7 +79,15 @@ namespace satdump
 
             wipInfo.live_pipeline = std::make_shared<pipeline::LivePipeline>(vpipeline, vpipeline_params, output_dir);
             splitter->add_vfo(id, get_samplerate(), wipInfo.input_shift);
-            wipInfo.live_pipeline->start(splitter->get_vfo_output(id), *wipInfo.lpool.get());
+            try
+            {
+                wipInfo.live_pipeline->start(splitter->get_vfo_output(id), *wipInfo.lpool.get());
+            }
+            catch (...)
+            {
+                splitter->del_vfo(id);
+                throw;
+            }
             splitter->set_vfo_enabled(id, true);
 
             vfo_list.push_back(wipInfo);
@@ -105,20 +113,32 @@ namespace satdump
             wipInfo.freq = freq;
             wipInfo.input_shift = (double)frequency_hz - freq;
 
+            int eff_decimation = decimation > 1 ? decimation : 1;
             splitter->add_vfo(id, get_samplerate(), wipInfo.input_shift);
+            try
+            {
+                if (eff_decimation > 1)
+                    wipInfo.decim_ptr = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(splitter->get_vfo_output(id), 1, eff_decimation);
+                wipInfo.file_sink = std::make_shared<dsp::FileSinkBlock>(eff_decimation > 1 ? wipInfo.decim_ptr->output_stream : splitter->get_vfo_output(id));
+                wipInfo.file_sink->set_output_sample_type(type);
 
-            if (decimation > 1)
-                wipInfo.decim_ptr = std::make_shared<dsp::SmartResamplerBlock<complex_t>>(splitter->get_vfo_output(id), 1, decimation);
-            wipInfo.file_sink = std::make_shared<dsp::FileSinkBlock>(decimation > 1 ? wipInfo.decim_ptr->output_stream : splitter->get_vfo_output(id));
-            wipInfo.file_sink->set_output_sample_type(type);
+                if (eff_decimation > 1)
+                    wipInfo.decim_ptr->start();
+                wipInfo.file_sink->start();
 
-            if (decimation > 1)
-                wipInfo.decim_ptr->start();
-            wipInfo.file_sink->start();
-
-            wipInfo.file_sink->start_recording(satdump_cfg.main_cfg["satdump_directories"]["recording_path"]["value"].get<std::string>() + "/" +
-                                                   prepareBasebandFileName(getTime(), get_samplerate() / decimation, freq),
-                                               get_samplerate() / decimation);
+                wipInfo.file_sink->start_recording(satdump_cfg.main_cfg["satdump_directories"]["recording_path"]["value"].get<std::string>() + "/" +
+                                                       prepareBasebandFileName(getTime(), get_samplerate() / eff_decimation, freq),
+                                                   get_samplerate() / eff_decimation);
+            }
+            catch (...)
+            {
+                if (wipInfo.decim_ptr)
+                    wipInfo.decim_ptr->stop();
+                if (wipInfo.file_sink)
+                    wipInfo.file_sink->stop();
+                splitter->del_vfo(id);
+                throw;
+            }
 
             splitter->set_vfo_enabled(id, true);
 
@@ -149,9 +169,9 @@ namespace satdump
 
             if (it->file_sink)
             {
-                it->file_sink->stop();
                 if (it->decim_ptr)
                     it->decim_ptr->stop();
+                it->file_sink->stop();
             }
 
             splitter->del_vfo(it->id);

@@ -443,17 +443,30 @@ static void test_viterbi_1_2_continuity()
     viterbi::CCEncoder encoder(total_bits, 7, 2, {79, 109});
     std::vector<uint8_t> encoded(total_bits * 2);
     encoder.work(tx_bits.data(), encoded.data());
-
+// hope this shi works for once lmao
     for (int shift : {0, 1})
     {
+        std::vector<int8_t> rotated_pairs(total_bits * 2);
+        for (int i = 0; i < total_bits * 2; i++)
+            rotated_pairs[i] = encoded[i] ? 100 : -100;
+
+        // Wtf is OQPSK sonion
+        // We simulate a QPSK 270-degree lock when shift == 0.
+        if (shift == 1)
+        {
+            rotate_soft(rotated_pairs.data(), total_bits * 2, PHASE_270, false);
+            rotate_soft(rotated_pairs.data(), total_bits * 2, PHASE_0, true);
+        }
+        else
+        {
+            rotate_soft(rotated_pairs.data(), total_bits * 2, PHASE_270, false);
+        }
+
         std::vector<int8_t> soft_stream(total_bits * 2 + shift, 0);
         for (int i = 0; i < total_bits * 2; i++)
-            soft_stream[i + shift] = encoded[i] ? 100 : -100;
+            soft_stream[i + shift] = rotated_pairs[i];
 
-        // Apply a 270-degree phase shift so the decoder must rotate by PHASE_90 to lock.
-        rotate_soft(soft_stream.data(), block_symbols * num_blocks, PHASE_270, false);
-
-        viterbi::Viterbi1_2 vit(0.15f, 5, block_symbols, {PHASE_0, PHASE_90, PHASE_180, PHASE_270});
+        viterbi::Viterbi1_2 vit(0.15f, 5, block_symbols, {PHASE_0, PHASE_90, PHASE_180, PHASE_270}, true);
         std::vector<uint8_t> rx_bits;
         rx_bits.reserve(block_bits * num_blocks);
 

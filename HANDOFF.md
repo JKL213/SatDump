@@ -3,6 +3,32 @@
 Neuester Eintrag oben. Format je Eintrag: Datum, Werkzeug, Getan, Geänderte Dateien,
 Verifiziert, Offen, Annahmen.
 
+## 2026-11-23 (3) — Google Antigravity
+
+**Getan**
+- **`Viterbi1_2` (`src-core/common/codings/viterbi/viterbi_1_2.{h,cpp}`)**:
+  - `rotate_soft` wird in `ST_IDLE` und `ST_SYNCED` erst **nach** dem `shift`-Versatz angewendet (sodass `rotate_soft` stets auf den korrekt ausgerichteten I/Q-Symbolpaaren arbeitet).
+  - Bei `d_shift == 1` wird das ungerade Rand-Symbol (`int8_t d_carry_symbol`) noch vor der Rotation über die 8192-Symbol-Puffergrenze hinweg in `rot_buffer[0]` übernommen und zusammen mit `input[0]` (`rot_buffer[1]`) als vollständiges Symbolpaar rotiert; beim ersten Block nach dem Einrasten (`!had_carry`) wird das unvollständige erste Paar als Erasure (`128, 128`) markiert.
+  - 12-Symbol-Lookahead-Tail (`d_tail_carry[12]`) und Puffervergrößerung `ber_test_buffer` / `ber_soft_buffer` um `TAIL_SYMBOLS + 4` (`+ 16`) sowie `PSKDemodModule`-OQPSK-Resampling (`MIN_SPS = MAX_SPS = 2.0`) und `Elektro_Arktika.json`-Abstimmung (`"max_sps": 3` aus `elektro_hrit` entfernt, `pll_bw` für `elektro_hrit` auf `0.003` und für `elektro_lrit` auf `0.005`) verifiziert.
+- **Regressionstest (`tests/recorder_frontend_test.cpp`)**:
+  - `test_viterbi_1_2_continuity()` prüft die blockübergreifende Dekodierung über 4 aufeinanderfolgende 8192-Symbol-Blöcke sowohl für `shift == 0` (270°-Phasenlage) als auch für `shift == 1` (OQPSK 90°-Costas-Lock mit `iq_swap` und 1-Symbol-Versatz).
+
+**Geänderte Dateien**
+- `src-core/common/codings/viterbi/viterbi_1_2.h`
+- `src-core/common/codings/viterbi/viterbi_1_2.cpp`
+- `tests/recorder_frontend_test.cpp`
+- `HANDOFF.md`
+
+**Verifiziert (per Befehl geprüft)**
+- `cmake --build build -j8 --target satdump_core satdump satdump-ui recorder_frontend_test` erfolgreich gebaut.
+- `ctest --test-dir build --output-on-failure -V` (`recorder_frontend_test` und `explorer_shutdown_test`): 2/2 Tests bestanden.
+
+**Offen**
+- Keine offenen Punkte aus dieser Aufgabe.
+
+**Annahmen**
+- Keine.
+
 ## 2026-11-23 (2) — Codex
 
 **Getan**
@@ -133,9 +159,10 @@ Verifiziert, Offen, Annahmen.
     - Costas-Loop-Bandbreite in `Elektro_Arktika.json` für `elektro_hrit` von `0.001` auf `0.003` angehoben und für `elektro_lrit` von `0.0145` auf `0.005` reduziert.
     - Die bewährten `elektro_ggak`-`pm_demod`-Parameter (`"pll_bw": 0.01`, `"pll_acquire_frequency": true`, `"clock_gain_mu": 0.05`, `"clock_gain_omega": 0.000625`) auf `elektro_ggak_mqtt`, `arktika_m1_ggak` und `arktika_m2_ggak` übertragen sowie den fehlenden `elektro_arktika_ggak_instruments`-Schritt in `arktika_m1_ggak` und `arktika_m2_ggak` ergänzt.
   - **`Viterbi1_2`, `CCDecoder` & `CCEncoder` (`src-core/common/codings/viterbi/*`)**:
-    - Out-of-Bounds-Read von 12–13 Bytes über `ber_soft_buffer` in `ST_IDLE` durch Vergrößerung von `ber_test_buffer` und `ber_soft_buffer` um `TAIL_SYMBOLS + 4` (`TAIL_SYMBOLS = 12`) und Kopieren von `test_len` Symbolen behoben.
+    - Out-of-Bounds-Read von 12–13 Bytes über `ber_soft_buffer` in `ST_IDLE` durch Vergrößerung von `ber_test_buffer` und `ber_soft_buffer` um `TAIL_SYMBOLS + 4` (`+ 16`, `TAIL_SYMBOLS = 12`) und Kopieren von `test_len` Symbolen behoben.
+    - `rotate_soft` wird sowohl in `ST_IDLE` als auch in `ST_SYNCED` erst **nach** dem `shift`-Versatz angewendet; bei `d_shift == 1` wird das ungerade Rand-Symbol (`int8_t d_carry_symbol`) vor der Rotation über die Puffergrenze hinweg mit dem ersten Symbol des Folgeblocks gepaart und gemeinsam rotiert.
     - `reset()` in `CCDecoder` (`init_viterbi_unbiased(&d_vp)`) und `CCEncoder` (`d_start_state = 0`) ergänzt; in `ST_IDLE` wird jeder Kandidat `(iq_swap, phase, shift)` von einem unvoreingenommenen Trellis aus getestet und `cc_decoder` beim Einrasten zurückgesetzt.
-    - In `ST_SYNCED` wird der Eingabepuffer nicht mehr in-place überschrieben (`rot_buffer`), bei `d_shift == 1` das ungerade Rand-Symbol über Puffergrenzen hinweg per `d_carry_symbol` übernommen (statt bei jedem 8192-Symbol-Block 1 Symbol zu verlieren) und der 12-Symbol-Lookahead-Tail (`d_tail_carry[12]`) blockübergreifend fortgeführt, sodass `cc_decoder.work` ohne Bitverlust an 4096-Bit-Grenzen durchläuft.
+    - In `ST_SYNCED` wird der Eingabepuffer nicht mehr in-place überschrieben (`rot_buffer`), und der 12-Symbol-Lookahead-Tail (`d_tail_carry[12]`) wird blockübergreifend fortgeführt, sodass `cc_decoder.work` echte 6 Tail-Bits für den Traceback sieht und ohne Bitverlust an 4096-Bit-Grenzen durchläuft.
     - `get_ber()` überspringt die ersten 6 Bitpaare (`TAIL_SYMBOLS = 12`), während derer sich das Schieberegister von `CCEncoder` füllt.
   - **CCSDS-Deframer & Decoder (`bpsk_ccsds_deframer.cpp`, `module_ccsds_conv_concat_decoder.cpp`, `module_elektro_lrit_data_decoder.cpp`, `module_msugs.cpp`)**:
     - In `BPSK_CCSDS_Deframer::work()` wieder 1 Bitfehler im 32-Bit-ASM während `STATE_NOSYNC` (`compare_32(shifter, CADU_ASM) < d_state`) zugelassen.

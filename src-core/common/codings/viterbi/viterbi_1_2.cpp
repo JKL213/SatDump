@@ -31,7 +31,7 @@ namespace viterbi
                 for (int y = 0; y < 4; y++)
                     d_bers[s][y][i] = 10;
     }
-
+// JKL213 testing for viterbi! 
     Viterbi1_2::~Viterbi1_2()
     {
         delete[] rot_buffer;
@@ -61,26 +61,26 @@ namespace viterbi
         if (d_state == ST_IDLE) // Search for a lock
         {
             d_ber = 10;
-            const int test_len = std::min(size, TEST_BITS_LENGTH + TAIL_SYMBOLS + 2) & ~1;
-            for (int s = 0; s < (d_check_iq_swap ? 2 : 1); s++)
+            for (int shift = 0; shift < 2; shift++) // Test 2 puncturing shifts
             {
-                for (phase_t phase : d_phases_to_check)
+                const int test_len = std::min(size - shift, TEST_BITS_LENGTH + TAIL_SYMBOLS) & ~1;
+                for (int s = 0; s < (d_check_iq_swap ? 2 : 1); s++)
                 {
-                    memset(ber_test_buffer, 0, sizeof(ber_test_buffer));
-                    memset(ber_soft_buffer, 128, sizeof(ber_soft_buffer));
-                    memcpy(ber_test_buffer, input, test_len);                               // Copy over small buffer
-                    rotate_soft(ber_test_buffer, test_len, PHASE_0, s);                     // IQ Swap
-                    rotate_soft(ber_test_buffer, test_len, phase, false);                   // Phase shift
-                    signed_soft_to_unsigned(ber_test_buffer, ber_soft_buffer, test_len);    // Convert to softs for the viterbi
-
-                    for (int shift = 0; shift < 2; shift++) // Test 2 puncturing shifts
+                    for (phase_t phase : d_phases_to_check)
                     {
+                        memset(ber_test_buffer, 0, sizeof(ber_test_buffer));
+                        memset(ber_soft_buffer, 128, sizeof(ber_soft_buffer));
+                        memcpy(ber_test_buffer, input + shift, test_len);                    // Align by shift first
+                        rotate_soft(ber_test_buffer, test_len, PHASE_0, s);                  // IQ Swap
+                        rotate_soft(ber_test_buffer, test_len, phase, false);                // Phase shift
+                        signed_soft_to_unsigned(ber_test_buffer, ber_soft_buffer, test_len); // Convert to softs for the viterbi
+
                         cc_decoder_ber.reset();
                         cc_encoder_ber.reset();
-                        cc_decoder_ber.work(ber_soft_buffer + shift, ber_decoded_buffer); // Decode....
-                        cc_encoder_ber.work(ber_decoded_buffer, ber_encoded_buffer);      // ....then reencode for comparison
+                        cc_decoder_ber.work(ber_soft_buffer, ber_decoded_buffer); // Decode....
+                        cc_encoder_ber.work(ber_decoded_buffer, ber_encoded_buffer); // ....then reencode for comparison
 
-                        d_bers[s][phase][shift] = get_ber(ber_soft_buffer + shift, ber_encoded_buffer, TEST_BITS_LENGTH); // Compute BER between initial buffer and re-encoded
+                        d_bers[s][phase][shift] = get_ber(ber_soft_buffer, ber_encoded_buffer, TEST_BITS_LENGTH); // Compute BER between initial buffer and re-encoded
 
                         if ((d_ber == 10 && d_bers[s][phase][shift] < d_ber_thresold) || // Check for a lock initially
                             (d_ber < 10 && d_bers[s][phase][shift] < d_ber))             // And if we find a lower BER, prefer it
@@ -92,7 +92,7 @@ namespace viterbi
                             d_shift = shift;          // Set current puncturing shift
                             d_invalid = 0;            // Reset invalid BER count
                             d_has_carry = false;
-                            d_carry_symbol = 128;
+                            d_carry_symbol = 0;
                             memset(d_tail_carry, 128, TAIL_SYMBOLS);
                             memset(soft_buffer, 128, d_buffer_size * 2 + TAIL_SYMBOLS + 4);
                             cc_decoder.reset();
@@ -106,21 +106,30 @@ namespace viterbi
 
         if (d_state == ST_SYNCED) // Decode
         {
-            memcpy(rot_buffer, input, size);
-            rotate_soft(rot_buffer, size, PHASE_0, d_iq_swap);
-            rotate_soft(rot_buffer, size, d_phase, false);            // Phase shift
-            signed_soft_to_unsigned(rot_buffer, unsigned_buffer, size); // Soft conversion
-
-            uint8_t *aligned = unsigned_buffer;
+            const bool had_carry = d_has_carry;
             if (d_shift)
             {
-                // Preserve the odd trailing symbol across buffer boundaries instead of dropping it.
-                uint8_t next_carry = unsigned_buffer[size - 1];
-                memmove(unsigned_buffer + 1, unsigned_buffer, size - 1);
-                unsigned_buffer[0] = d_has_carry ? d_carry_symbol : 128;
-                d_carry_symbol = next_carry;
+                // Preserve the odd trailing symbol across buffer boundaries and align pairs before rotation.
+                rot_buffer[0] = had_carry ? d_carry_symbol : 0;
+                memcpy(rot_buffer + 1, input, size - 1);
+                d_carry_symbol = input[size - 1];
                 d_has_carry = true;
             }
+            else
+            {
+                memcpy(rot_buffer, input, size);
+            }
+
+            rotate_soft(rot_buffer, size, PHASE_0, d_iq_swap);
+            rotate_soft(rot_buffer, size, d_phase, false);              // Phase shift
+            signed_soft_to_unsigned(rot_buffer, unsigned_buffer, size); // Soft conversion
+            if (d_shift && !had_carry)
+            {
+                unsigned_buffer[0] = 128;
+                unsigned_buffer[1] = 128;
+            }
+
+            uint8_t *aligned = unsigned_buffer;
 
             // Prepend the 12-symbol (6-bit) tail from the previous block so CCDecoder
             // always has a real 6-bit lookahead tail in soft_buffer[size .. size + 11]

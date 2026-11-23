@@ -46,7 +46,7 @@ namespace viterbi
         uint8_t *unsigned_buffer;
         uint8_t *soft_buffer;
         uint8_t *output_buffer;
-        uint8_t d_carry_symbol = 128;
+        int8_t d_carry_symbol = 0;
         bool d_has_carry = false;
         uint8_t d_tail_carry[TAIL_SYMBOLS];
 
